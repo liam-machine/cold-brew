@@ -178,6 +178,36 @@ run_agents "$home" "" remote on >/dev/null
 check "remote on: keeps a push choice you made" "true false" \
   "$(setting remoteControlAtStartup) $(setting inputNeededNotifEnabled)"
 check "remote: on" "remote on" "$(remote_line "")"
+
+# which settings file: a stale record (a throwaway CLAUDE_CONFIG_DIR, a deleted one) mustn't win,
+# or Remote Control goes to a file Claude Code never reads
+records="$home/.cache/lid-agents/hook-files"
+scratch="$TMP/scratchpad/cc"; mkdir -p "$scratch"
+canonical '{}' > "$scratch/settings.json"
+printf '%s\n%s\n' "$scratch/settings.json" "$S" > "$records"
+TEST_ENV="TMPDIR=$TMP/" run_agents "$home" "" remote off >/dev/null
+check "remote: skips a recorded settings file in a temporary folder" "false unset" \
+  "$(setting remoteControlAtStartup) $(plutil -extract remoteControlAtStartup raw -o - "$scratch/settings.json" 2>/dev/null || echo unset)"
+printf '%s\n%s\n' "$home/gone/settings.json" "$S" > "$records"
+run_agents "$home" "" remote on >/dev/null
+check "remote: skips a recorded settings file that's gone" "true" "$(setting remoteControlAtStartup)"
+check "remote: a missing recorded file isn't created" "no" "$([ -e "$home/gone" ] && echo yes || echo no)"
+mkdir -p "$home/custom-claude"; canonical '{"remoteControlAtStartup":false}' > "$home/custom-claude/settings.json"
+printf '%s\n%s\n' "$home/custom-claude/settings.json" "$S" > "$records"
+check "remote: a recorded custom CLAUDE_CONFIG_DIR is still used" "remote off" "$(remote_line "")"
+check "temp folders: Claude Code's scratchpads and \$TMPDIR" "yes yes yes no" "$(
+  export HOME="$home" AGENTS_SOURCED=1 TMPDIR=/var/folders/ab/T/
+  # shellcheck source=../bin/agents
+  source "$AGENTS"
+  for p in /private/tmp/claude-501/x/scratchpad/cc/settings.json /tmp/cc/settings.json \
+    /private/var/folders/ab/T/cc/settings.json "$home/.claude/settings.json"; do
+    in_temp_dir "$p" && printf 'yes ' || printf 'no '
+  done | sed 's/ $//'
+)"
+printf '%s\n' "$S" > "$records"
+TEST_ENV="CLAUDE_CONFIG_DIR=$scratch TMPDIR=$TMP/" run_agents "$home" "" integrate >/dev/null 2>&1
+check "integrate: a CLAUDE_CONFIG_DIR in a temporary folder isn't recorded" "$S" "$(cat "$records")"
+
 # a busy Claude session's sessions/<pid>.json says whether it's connected
 mkdir -p "$home/.claude/sessions"
 canonical '{"pid":900001,"kind":"interactive"}' > "$home/.claude/sessions/900001.json"
