@@ -894,7 +894,18 @@ function run(argv) {
   return writeObject(path, file);
 }
 JXA
-  if [ "$mode" = "add" ] && ! grep -qxF "$file" "$HOOK_FILES" 2>/dev/null; then echo "$file" >> "$HOOK_FILES"; fi
+  # a throwaway config (a test run with CLAUDE_CONFIG_DIR in a temporary folder) isn't recorded
+  if [ "$mode" = "add" ] && ! in_temp_dir "$file" && ! grep -qxF "$file" "$HOOK_FILES" 2>/dev/null; then
+    echo "$file" >> "$HOOK_FILES"
+  fi
+}
+
+# Is this path in a temporary folder? /tmp (where Claude Code keeps its scratchpads) or $TMPDIR
+in_temp_dir() {   # in_temp_dir <path>
+  local t="${TMPDIR:-}"; t="${t%/}"
+  case "$1" in /tmp/*|/private/tmp/*) return 0 ;; esac
+  if [ -n "$t" ]; then case "$1" in "$t"/*|"/private$t"/*) return 0 ;; esac; fi
+  return 1
 }
 
 # Sets top-level keys in a Claude Code settings file, each "key=<JSON value>"; "?key=value" only
@@ -975,12 +986,15 @@ integrate_hooks() {
 
 # --- Remote Control (Claude Code's own: claude.ai/code and the Claude app reach a session here) ---
 
-# The Claude Code settings file: $CLAUDE_CONFIG_DIR's, else one integrate recorded (the app doesn't
-# inherit a custom CLAUDE_CONFIG_DIR), else ~/.claude's
+# The Claude Code settings file: $CLAUDE_CONFIG_DIR's, else the first one integrate recorded that's
+# still there and not in a temporary folder (the app doesn't inherit a custom CLAUDE_CONFIG_DIR),
+# else ~/.claude's. A stale record would otherwise send Remote Control to a file Claude never reads.
 claude_settings_file() {
   if [ -z "${CLAUDE_CONFIG_DIR:-}" ]; then
-    local f; f="$(grep -v '/hooks\.json$' "$HOOK_FILES" 2>/dev/null | head -1)"
-    if [ -n "$f" ]; then echo "$f"; return 0; fi
+    local f
+    while IFS= read -r f; do
+      if [ -f "$f" ] && ! in_temp_dir "$f"; then echo "$f"; return 0; fi
+    done < <(grep -v '/hooks\.json$' "$HOOK_FILES" 2>/dev/null)
   fi
   echo "$CLAUDE_SETTINGS"
 }
