@@ -111,7 +111,14 @@ open "$APP"
 hotkey="$(defaults read "$BUNDLE_ID" Hotkey 2>/dev/null || echo "ctrl+0")"
 echo
 bold "Lid Agents $("$LINK" version | awk '{print $2}') is installed."
-echo "  • Click the cup in the menu bar, or press $hotkey, to keep agents running with the lid closed."
+case "$(defaults read "$BUNDLE_ID" AutoKeep 2>/dev/null)" in
+  0|false|off|no)
+    echo "  • Click the cup in the menu bar, or press $hotkey, to keep agents running with the lid closed." ;;
+  *)
+    echo "  • Nothing to switch on: when an agent starts working, the cup in the menu bar fills and"
+    echo "    closing the lid keeps it running. Press $hotkey or click the cup to let it sleep this time."
+    echo "  • Rather switch it on yourself each time? Run: agents auto off" ;;
+esac
 echo "  • macOS will ask whether \"Lid Agents\" can send notifications: click Allow."
 echo "  • In a terminal: agents keep · agents pause · agents (status) · agents uninstall"
 if ! [ -f "$HOME/.cache/lid-agents/integrated" ] && { command -v codex || command -v opencode; } >/dev/null 2>&1; then
