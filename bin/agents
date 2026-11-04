@@ -673,7 +673,7 @@ cmd_status() {
 keep_mode() { cat "$KEEP_MODE" 2>/dev/null || echo busy; }
 
 # One machine-readable line for the menu bar app:
-#   <keep|pause> <busy> <guard 0|1> <battery%> <ac|battery> <open|closed> <setup ok|missing> <idle minutes>
+#   <keep|pause> <busy> <guard 0|1> <battery% or - without one> <ac|battery> <open|closed> <setup ok|missing> <idle minutes>
 #   <busy|always> <auto off|on|due|held>       (see auto_state)
 # --menu adds, from the same agent report, what the menu lists:
 #   remote <on|off|unset|none>        Remote Control for new Claude sessions (unset: never chosen;
@@ -687,7 +687,7 @@ cmd_state() {
   if [ -s "$SLOWED" ] && { [ "$keep" = pause ] || ! guard_running; }; then apps_sync open; fi
   printf '%s %s %s %s %s %s %s %s %s %s\n' \
     "$keep" "$(printf '%s\n' "$report" | awk 'NF && $3 " " $4 != "needs input"' | wc -l | tr -d ' ')" \
-    "$(guard_running && echo 1 || echo 0)" "$(battery_pct)" "$(on_battery && echo battery || echo ac)" \
+    "$(guard_running && echo 1 || echo 0)" "$(battery_pct | grep . || echo -)" "$(on_battery && echo battery || echo ac)" \
     "$(lid_closed && echo closed || echo open)" "$(has_sudo_rule && echo ok || echo missing)" "$IDLE_MINUTES" "$(keep_mode)" \
     "$(auto_state "$keep" "$report")"
   [ "${1:-}" = "--menu" ] || return 0

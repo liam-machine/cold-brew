@@ -252,6 +252,8 @@ rm -f "$HOLD"
 TEST_ENV="AGENTS_AUTO=0" run_agents "$home" "$ROOT/tests/cases/claude-caffeinate" keep --auto >/dev/null 2>&1; status=$?
 check "keep --auto: does nothing when auto is off" "3" "$status"
 : > "$HOLD"
+check "state: the battery field is never empty (a Mac without one)" "10" \
+  "$(run_agents "$home" "$ROOT/tests/cases/claude-caffeinate" state | awk '{ print NF }')"
 check "state: the auto field" "held" \
   "$(TEST_ENV="AGENTS_AUTO=1" run_agents "$home" "$ROOT/tests/cases/claude-caffeinate" state | awk '{ print $10 }')"
 rm -f "$HOLD"

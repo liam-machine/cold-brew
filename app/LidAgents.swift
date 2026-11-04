@@ -20,7 +20,7 @@ struct AgentState {
     var keeping = false
     var busy = 0
     var guardRunning = false
-    var battery = 0
+    var battery = -1                // -1: no battery (a desktop Mac)
     var onBattery = false
     var lidClosed = false
     var setupOK = true
@@ -101,7 +101,7 @@ enum Agents {
         let f = line.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ").map(String.init)
         guard f.count >= 8 else { return AgentState() }
         return AgentState(keeping: f[0] == "keep", busy: Int(f[1]) ?? 0, guardRunning: f[2] == "1",
-                          battery: Int(f[3]) ?? 0, onBattery: f[4] == "battery", lidClosed: f[5] == "closed",
+                          battery: Int(f[3]) ?? -1, onBattery: f[4] == "battery", lidClosed: f[5] == "closed",
                           setupOK: f[6] == "ok", idleMinutes: Int(f[7]) ?? 3, always: f.count > 8 && f[8] == "always",
                           auto: f.count > 9 ? AutoKeep(rawValue: f[9]) ?? .on : .on)
     }
@@ -943,7 +943,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         var summary = [state.busy == 0 ? "None working" : "\(state.busy) working"]
         if waiting > 0 { summary.append("\(waiting) need\(waiting == 1 ? "s" : "") you") }
         if snap.appsSlowed > 0 { summary.append("\(snap.appsSlowed) app\(snap.appsSlowed == 1 ? "" : "s") slowed") }
-        summary.append("battery \(state.battery)%\(state.onBattery ? "" : " (charging)")")
+        if state.battery >= 0 { summary.append("battery \(state.battery)%\(state.onBattery ? "" : " (charging)")") }
         menu.addItem(displayItem(text(summary.joined(separator: " · "))))
         if !state.keeping && state.auto == .held {
             menu.addItem(displayItem(text("Off for the agents running now; the next one to start after they finish switches it on",
