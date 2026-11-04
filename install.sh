@@ -1,7 +1,7 @@
 #!/bin/bash
 # Cold Brew installer (it was called Lid Agents before 1.5.0).
 #
-#   curl -fsSL https://github.com/liam-machine/lid-agents/releases/latest/download/install.sh | bash
+#   curl -fsSL https://github.com/liam-machine/cold-brew/releases/latest/download/install.sh | bash
 #
 # Installs "Cold Brew.app" (menu bar app; replaces an existing copy where it is, a "Lid Agents.app"
 # included, otherwise ~/Applications), links the `agents` command into ~/.local/bin, adds one sudoers rule allowing
@@ -10,7 +10,7 @@
 # Update item passes LID_AGENTS_APP (its own path). From a checkout, `./install.sh` uses build/.
 set -euo pipefail
 
-REPO="liam-machine/lid-agents"
+REPO="liam-machine/cold-brew"
 VERSION="${LID_AGENTS_VERSION:-latest}"
 BUNDLE_ID="io.github.liam-machine.lid-agents"
 NAME="Cold Brew.app"

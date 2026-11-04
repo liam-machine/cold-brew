@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.1
+
+- **The GitHub repo is now [liam-machine/cold-brew](https://github.com/liam-machine/cold-brew)**, to match the app. Updates and downloads use the new address; the old one redirects, so earlier versions still find updates.
+
 ## 1.5.0
 
 - **Lid Agents is now Cold Brew.** Same app, same cup, same settings, new name: the menu bar, notifications, Spotlight, the installer and `agents` all say Cold Brew. Updating replaces "Lid Agents.app" with "Cold Brew.app" in the same folder, a copy left in the other Applications folder is removed, and Open at Login moves over. The `agents` command, its settings and `~/.cache/lid-agents` are unchanged.
@@ -103,5 +107,5 @@ First release.
 Install:
 
 ```bash
-curl -fsSL https://github.com/liam-machine/lid-agents/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/liam-machine/cold-brew/releases/latest/download/install.sh | bash
 ```

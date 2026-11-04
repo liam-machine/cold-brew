@@ -2,7 +2,7 @@
 
 **Close your MacBook's lid and let your AI agents keep working.**
 
-[![Download for macOS](https://img.shields.io/github/v/release/liam-machine/lid-agents?label=Download%20for%20macOS&logo=apple&style=for-the-badge&color=8a5a2b)](https://github.com/liam-machine/lid-agents/releases/latest/download/ColdBrew.dmg)
+[![Download for macOS](https://img.shields.io/github/v/release/liam-machine/cold-brew?label=Download%20for%20macOS&logo=apple&style=for-the-badge&color=8a5a2b)](https://github.com/liam-machine/cold-brew/releases/latest/download/ColdBrew.dmg)
 
 Website: **[lid-agents.liam-is-an.ai](https://lid-agents.liam-is-an.ai)**
 
@@ -12,12 +12,12 @@ No external display, no keyboard or mouse plugged in, no power adapter required.
 
 ## Install
 
-**[Download Cold Brew (.dmg)](https://github.com/liam-machine/lid-agents/releases/latest/download/ColdBrew.dmg)**, drag it into Applications and open it. On first launch it asks once for your password (see [Permissions](#permissions-and-exactly-what-the-installer-changes)), and then the cup appears in your menu bar.
+**[Download Cold Brew (.dmg)](https://github.com/liam-machine/cold-brew/releases/latest/download/ColdBrew.dmg)**, drag it into Applications and open it. On first launch it asks once for your password (see [Permissions](#permissions-and-exactly-what-the-installer-changes)), and then the cup appears in your menu bar.
 
 Or from a terminal:
 
 ```bash
-curl -fsSL https://github.com/liam-machine/lid-agents/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/liam-machine/cold-brew/releases/latest/download/install.sh | bash
 ```
 
 <sub>macOS 13 or later, Apple Silicon or Intel, on an administrator account. Signed with a Developer ID and notarized by Apple. Free and MIT licensed.</sub>
@@ -202,7 +202,7 @@ This switches lid-close sleep back on and removes the app, the command, the logi
 ## Building from source
 
 ```bash
-git clone https://github.com/liam-machine/lid-agents && cd lid-agents
+git clone https://github.com/liam-machine/cold-brew && cd cold-brew
 scripts/build.sh      # universal "build/Cold Brew.app", dist/ColdBrew.dmg, dist/lid-agents.tar.gz
 ./install.sh          # installs the local build
 tests/run.sh          # tests for bin/agents (detection, agents mark, hooks); see tests/README.md

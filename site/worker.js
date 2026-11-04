@@ -9,7 +9,7 @@
 
 import icon from "./icon.png";
 
-const REPO = "liam-machine/lid-agents";
+const REPO = "liam-machine/cold-brew";
 const LATEST = `https://github.com/${REPO}/releases/latest/download`;
 const REDIRECTS = {
   "/download": `${LATEST}/ColdBrew.dmg`,

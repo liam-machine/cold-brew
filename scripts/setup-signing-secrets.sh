@@ -7,7 +7,7 @@
 # It also saves a local `notarytool` profile named lid-agents for local notarized builds.
 set -euo pipefail
 
-REPO="liam-machine/lid-agents"
+REPO="liam-machine/cold-brew"
 bold() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
 command -v gh >/dev/null || { echo "Needs the GitHub CLI (gh), logged in."; exit 1; }
