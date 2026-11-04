@@ -1,0 +1,7 @@
+keep	Google Chrome	list
+keep	Started By Agent	agent
+keep	Visual Studio Code	agent
+keep	iTerm	agent
+keep	zoom.us	busy
+slow	910010	/Applications/Slack.app/Contents/MacOS/Slack
+slow	910011	/Applications/Slack.app/Contents/Frameworks/Slack Helper.app/Contents/MacOS/Slack Helper

@@ -217,6 +217,92 @@ check "state --menu: a busy Claude session on Remote Control" "900001 claude wor
 rm "$home/.claude/sessions/900001.json"
 check "state --menu: a session without a file isn't flagged" "900001 claude working -" "$(agent_line "$fx")"
 
+# --- Auto keep: switches on when an agent starts, held after a pause until agents finish ------
+# AGENTS_AUTO stands in for the AutoKeep default; nothing here runs pmset or writes defaults.
+home="$TMP/auto"; mkdir -p "$home/.cache/lid-agents"
+HOLD="$home/.cache/lid-agents/auto-hold"
+auto_of() {   # auto_of <on|off> <keep|pause> <fixture case or "">: auto_state for that snapshot
+  (
+    export HOME="$home" AGENTS_SOURCED=1 AGENTS_AUTO="$1"
+    [ -z "$3" ] || export AGENTS_TEST_FIXTURE="$ROOT/tests/cases/$3"
+    # shellcheck source=../bin/agents
+    source "$AGENTS"
+    battery_low() { return 1; }          # this Mac's battery mustn't decide the test
+    auto_state "$2" "$([ -z "$3" ] || agent_report)"
+  )
+}
+check "auto: an agent working with keep off is due" "due" "$(auto_of 1 pause claude-caffeinate)"
+check "auto: nothing to do while keep is already on" "on" "$(auto_of 1 keep claude-caffeinate)"
+check "auto: no agent working, nothing due" "on" "$(auto_of 1 pause no-agents)"
+put_marker "$home" 900001                # the Claude session stops on a prompt
+check "auto: an agent that needs you doesn't switch it on" "on" "$(auto_of 1 pause claude-caffeinate)"
+check "auto: off means keep only when asked" "off" "$(auto_of 0 pause claude-caffeinate)"
+: > "$HOLD"
+check "auto: paused with agents at work, held" "held" "$(auto_of 1 pause claude-caffeinate)"
+check "auto: held while an agent still needs you" "held" "$(auto_of 1 pause claude-caffeinate)"
+rm -f "$home/.cache/lid-agents/waiting/900001"
+check "auto: the hold stays while they work" "yes" "$([ -f "$HOLD" ] && echo yes)"
+check "auto: once they've finished, armed again" "on" "$(auto_of 1 pause no-agents)"
+check "auto: …and the hold is gone" "no" "$([ -f "$HOLD" ] && echo yes || echo no)"
+check "auto: the next agent to start is due" "due" "$(auto_of 1 pause claude-caffeinate)"
+: > "$HOLD"
+TEST_ENV="AGENTS_AUTO=1" run_agents "$home" "$ROOT/tests/cases/claude-caffeinate" keep --auto >/dev/null 2>&1; status=$?
+check "keep --auto: does nothing while held" "3" "$status"
+rm -f "$HOLD"
+TEST_ENV="AGENTS_AUTO=0" run_agents "$home" "$ROOT/tests/cases/claude-caffeinate" keep --auto >/dev/null 2>&1; status=$?
+check "keep --auto: does nothing when auto is off" "3" "$status"
+: > "$HOLD"
+check "state: the battery field is never empty (a Mac without one)" "10" \
+  "$(run_agents "$home" "$ROOT/tests/cases/claude-caffeinate" state | awk '{ print NF }')"
+check "state: the auto field" "held" \
+  "$(TEST_ENV="AGENTS_AUTO=1" run_agents "$home" "$ROOT/tests/cases/claude-caffeinate" state | awk '{ print $10 }')"
+rm -f "$HOLD"
+
+# --- Other apps: which are slowed with the lid closed (tests/apps/) --------------------------
+# Plans only: nothing here runs taskpolicy, so no real app is touched.
+plan_of() {   # plan_of <keep list>: apps_plan for the tests/apps snapshot, sorted
+  (
+    export HOME="$TMP/apps" AGENTS_SOURCED=1 AGENTS_TEST_FIXTURE="$ROOT/tests/apps" AGENTS_KEEP_APPS="$1"
+    # shellcheck source=../bin/agents
+    source "$AGENTS"
+    apps_plan | sort
+  )
+}
+mkdir -p "$TMP/apps"
+check "apps: agent hosts, what they started, the list and busy apps kept; the rest slowed" \
+  "$(sort "$ROOT/tests/apps/expected")" "$(plan_of "Simulator,Google Chrome")"
+check "apps: with an empty list, Chrome is slowed too" "slow 910010 slow 910011 slow 910020 slow 910021" \
+  "$(plan_of "" | awk -F'\t' '$1 == "slow" { printf "%s%s %s", (n++ ? " " : ""), $1, $2 }')"
+names_of() {
+  export HOME="$TMP/apps" AGENTS_SOURCED=1
+  # shellcheck source=../bin/agents
+  source "$AGENTS"
+  apps_names
+}
+check "apps: names for the log and menu" "Slack, Google Chrome" \
+  "$(printf '1\t/Applications/Slack.app/Contents/MacOS/Slack\n2\t/Applications/Slack.app/x\n3\t/Applications/Google Chrome.app/y\n' | (names_of))"
+
+# --- Lid closed: the display is put to sleep unless a monitor is plugged in -----------------
+display_case() {   # display_case <system_profiler text>: external or none
+  mkdir -p "$TMP/displays"; printf '%s\n' "$1" > "$TMP/displays/displays"
+  (
+    export HOME="$TMP/apps" AGENTS_SOURCED=1 AGENTS_TEST_FIXTURE="$TMP/displays"
+    # shellcheck source=../bin/agents
+    source "$AGENTS"
+    external_display && echo external || echo none
+  )
+}
+check "display: the built-in screen alone" "none" "$(display_case '        Color LCD:
+          Display Type: Built-in Liquid Retina XDR Display
+          Resolution: 3024 x 1964 Retina')"
+check "display: a monitor as well (clamshell mode)" "external" "$(display_case '        Color LCD:
+          Display Type: Built-In Retina LCD
+          Resolution: 2560 x 1600 Retina
+        DELL U2720Q:
+          Resolution: 3840 x 2160 (2160p/4K UHD 1 - Ultra High Definition)')"
+check "display: lid closed, only a monitor" "external" "$(display_case '        LG HDR 4K:
+          Resolution: 3840 x 2160')"
+
 # --- agents focus: the steps for each kind of app (tests/focus/<case>/) ---------------------
 for dir in "$ROOT"/tests/focus/*/; do
   dir="${dir%/}"

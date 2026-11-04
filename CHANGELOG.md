@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.0
+
+- **Keep switches on by itself when an agent starts.** You no longer have to remember the hotkey before closing the lid: as soon as an agent starts working, the cup fills, and it empties once they've all finished, as before. Routine switches are quiet: you're told once the first time, and after that the cup shows it. The battery floor and an unanswered prompt still notify.
+- **Pausing means "not this time".** Press <kbd>⌃0</kbd>, click **Sleep (normal)** or run `agents pause` while agents work and keep stays off for them. Once they've all finished, working or waiting on you, the next agent to start switches it on again. The battery floor and an unanswered prompt work the same way, so keep never switches straight back on after them.
+- **No 8-hour cap.** Keep runs for as long as agents work; the battery floor (15%) is the limit. `agents keep 4h` still sets one if you want it, and **Keep running for 3 hours** is unchanged.
+- **Prefer it the old way?** Turn off the cup → **Settings** → **Keep running whenever an agent starts**, or run `agents auto off`. Keep then runs only when you switch it on.
+- **What the agent uses keeps running; everything else is slowed.** With the lid closed and keep on, apps no agent is using drop to background priority (they keep running, just with the lowest CPU and disk priority) and are back at full speed as soon as the lid opens. Never slowed: the app an agent runs in (VS Code, cmux, Terminal…), anything an agent started (a simulator, a browser it drives), apps busy with a call or audio, and the **Keep at Full Speed** list (Simulator, Xcode, Docker, OrbStack and the common browsers to start with). Change it under the cup → **Settings**, or with `agents apps`. System processes and command-line tools are never touched.
+- **The screen sleeps and the Mac locks when you close the lid.** Before, an app holding the display awake (a Chrome tab capturing, a video) could leave a closed Mac with its display on and unlocked for as long as keep ran. Now the display goes to sleep as soon as the lid closes, unless a monitor is plugged in.
+- `agents` status shows whether auto keep is on, and whether it's off for the agents running now, and which apps are slowed.
+
 ## 1.3.0
 
 - **Answer agents from your phone.** Lid Agents turns on Claude Code's own [Remote Control](https://code.claude.com/docs/en/remote-control) for new sessions, so with the lid closed you can answer a Claude session from claude.ai/code or the Claude app, which gets a push when it needs you. After setup, Lid Agents asks once whether to turn it on, explaining what it does (unless you've already chosen in Claude Code's `/config`). Turn it on or off any time under the cup → **Settings** → **Connect new Claude sessions to your phone**, or with `agents remote on|off`. `agents integrate` turns it on unless you've already chosen. It sets `remoteControlAtStartup` and, unless you've chosen otherwise, `inputNeededNotifEnabled` in `~/.claude/settings.json`.

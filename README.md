@@ -6,7 +6,7 @@
 
 Website: **[lid-agents.liam-is-an.ai](https://lid-agents.liam-is-an.ai)**
 
-Claude Code, Codex and other terminal agents stop the moment you close the lid, because macOS sleeps. Lid Agents adds a coffee cup to your menu bar. Fill it (click, or press <kbd>⌃0</kbd>) and closing the lid turns the screen off but keeps the Mac awake **while an agent is busy**. When they've all finished, it switches itself back off and puts the closed Mac to sleep.
+Claude Code, Codex and other terminal agents stop the moment you close the lid, because macOS sleeps. Lid Agents adds a coffee cup to your menu bar. The moment an agent starts working, the cup fills: closing the lid then turns the screen off but keeps the Mac awake **while an agent is busy**. When they've all finished, it switches itself back off and puts the closed Mac to sleep. Press <kbd>⌃0</kbd> (or click the cup) to switch it off for the agents running now, or [turn the automatic part off](#settings) and fill the cup only when you ask.
 
 No external display, no keyboard or mouse plugged in, no power adapter required.
 
@@ -26,20 +26,24 @@ curl -fsSL https://github.com/liam-machine/lid-agents/releases/latest/download/i
 
 | You do | What happens |
 |---|---|
-| Click the cup → **When the lid closes** → **Keep running while agents work** (or press <kbd>⌃0</kbd>) | The cup fills in and shows how many agents are busy. Close the lid whenever. **Keep running for 3 hours** stays on even when no agent is working. |
+| Start an agent | Within a few seconds the cup fills in and shows how many agents are busy. Close the lid whenever. (Turned **Keep running whenever an agent starts** off under **Settings**? Then fill it yourself: below.) |
+| Click the cup → **When the lid closes** → **Keep running while agents work** (or press <kbd>⌃0</kbd>) | The same, by hand. **Keep running for 3 hours** stays on even when no agent is working. |
 | Close the lid while an agent works | The screen goes off; the agent keeps going. |
-| Your agents finish | About 3 minutes later the cup empties, you get a notification, and a closed Mac goes to sleep. |
-| Click the cup → **Sleep (normal)** (or press <kbd>⌃0</kbd> again) | Back to normal: closing the lid sleeps the Mac. |
+| Your agents finish | About 3 minutes later the cup empties and a closed Mac goes to sleep. The next agent to start fills it again. |
+| Click the cup → **Sleep (normal)** (or press <kbd>⌃0</kbd> again) | Back to normal: closing the lid sleeps the Mac. The agents running now stay that way; once they've all finished, the next one to start fills the cup again. |
 
 The cup's menu also lists the agents that are running, each one **working** or **needs you**; click one to go to it (see below). Everything you set once is under **Settings**.
 
 The same controls from a terminal:
 
 ```bash
-agents keep            # keep running while agents are busy (8h cap)
-agents keep 2h         # …with a 2-hour cap   (0 = no cap)
+agents keep            # keep running while agents are busy (no time limit; battery floor applies)
+agents keep 2h         # …but no longer than 2 hours
 agents keep --always   # even when no agent is busy (3h)
-agents pause           # normal lid-close sleep
+agents pause           # normal lid-close sleep (until the agents running now finish)
+agents auto off        # keep only when you ask, not whenever an agent starts (agents auto on: back)
+agents apps            # which apps stay at full speed with the lid closed, and which are slowed
+agents apps keep Blender   # never slow an app an agent uses (agents apps drop Safari, agents apps reset)
 agents                 # status
 agents busy            # which agents count as busy (or need you), and in which folder
 agents focus 12345     # bring that agent's terminal or editor to the front, at its tab
@@ -65,6 +69,24 @@ Lid Agents looks at processes, not at the app they run in, so agents count the s
 | VS Code, Cursor, Ghostty, Warp, Superset, Zed, JetBrains, anything else | the app, brought to the front |
 
 Selecting a window or tab in any app would need the Accessibility permission, which Lid Agents doesn't ask for.
+
+## Everything the agent uses keeps running; everything else is slowed
+
+With the lid closed and keep on, the whole Mac stays awake, not just the agent: VS Code, a simulator, a browser, Docker and dev servers all keep running. To give the agents the Mac's attention, Lid Agents **slows every app they aren't using**. Those apps drop to background priority (`taskpolicy -b`: they keep running, with the lowest CPU and disk priority) and are back at full speed the moment you open the lid or keep switches off.
+
+Never slowed:
+
+| What | Why |
+|---|---|
+| The app an agent runs in (VS Code, Cursor, cmux, Terminal, iTerm…) | Found from the process tree. Slowing it would slow the agent's own terminal. |
+| Any app an agent started (a simulator, a browser it drives) | Also found from the process tree. |
+| **Keep at Full Speed** list: Simulator, Xcode, Docker, OrbStack and the common browsers | For apps an agent uses without starting them, such as your own Chrome through an extension. Change it under the cup → **Settings** → **Keep at Full Speed**, or `agents apps keep Blender` / `drop Safari` / `reset`. |
+| An app that told macOS it's busy (a call, audio, Chrome capturing a tab) | It holds a power assertion. |
+| Anything outside `/Applications` and `~/Applications` | System processes, command-line tools (node, python, a dev server) and Playwright's browsers are never touched. |
+
+Turn it off under **Settings** → **Slow other apps while the lid is closed**, or `agents apps off`. `agents apps` shows what's kept and what would be slowed right now. It needs no permission: an app you run can always be moved to background priority and back.
+
+Two things it can't change, because macOS doesn't allow it: with the lid shut there's no screen, so a browser or the iOS Simulator stops drawing and screenshots of the screen come back black. Headless browsers (Playwright), `simctl`, builds and servers aren't affected. And macOS's own App Nap still slows apps whose windows can't be seen. Use an external display if an agent needs to see the screen.
 
 ## Codex and OpenCode
 
@@ -116,8 +138,8 @@ macOS has two kinds of sleep:
 The one switch that covers the lid is `pmset -a disablesleep 1`. It is global and easy to forget, which is the dangerous part: a Mac that stays awake in a bag gets hot and flattens its battery. Lid Agents handles it for you:
 
 - **Only while agents work.** An agent counts as busy if it has a `caffeinate` child (Claude Code holds one only while working, and so does OpenCode with the plugin), holds a sleep assertion itself (Codex with `prevent_idle_sleep`), or uses 5% or more CPU. A session left open and idle in a terminal tab doesn't count.
-- **Turns itself off** after 3 idle minutes, at the 8-hour cap, or when the battery reaches 15%. If the lid is closed when that happens, the Mac goes to sleep straight away.
-- **The screen still turns off.** The lid sensor switches off the built-in display; only system sleep is held.
+- **Turns itself off** after 3 idle minutes, or when the battery reaches 15%. There's no time limit while agents work (give one with `agents keep 4h`). If the lid is closed when that happens, the Mac goes to sleep straight away.
+- **The screen sleeps and the Mac locks.** Closing the lid only turns the backlight off, and macOS waits for its display-sleep timer, which any app holding the display awake stops (a Chrome tab using the camera or sharing the screen, a video). So when the lid closes, Lid Agents puts the display to sleep straight away, and the Mac locks as usual. With a monitor plugged in (clamshell mode) the display is left alone.
 
 ## Permissions, and exactly what the installer changes
 
@@ -125,7 +147,7 @@ The one switch that covers the lid is `pmset -a disablesleep 1`. It is global an
 |---|---|---|
 | Your password, **once** (the installer, or the app's first-launch prompt) | Adds a sudoers rule allowing exactly `/usr/bin/pmset -a disablesleep 0` and `… 1`, nothing else. Sudo matches the arguments literally, so the rule can't be used for anything else. | `/etc/sudoers.d/lid-agents` |
 | "Allow notifications" prompt | Notifications when you switch, and when it pauses itself | System Settings → Notifications → Lid Agents |
-| Nothing else | The hotkey uses `RegisterEventHotKey`, which needs **no** Accessibility or Input Monitoring permission. | — |
+| Nothing else | The hotkey uses `RegisterEventHotKey`, which needs **no** Accessibility or Input Monitoring permission. Slowing other apps uses `taskpolicy` on your own apps, which needs no permission either. | — |
 
 Files: `Lid Agents.app` (in `/Applications` from the DMG, `~/Applications` from the one-liner), the `agents` link in `~/.local/bin`, a login item in `~/Library/LaunchAgents/io.github.liam-machine.lid-agents.plist`, and a log in `~/.cache/lid-agents/`. `agents integrate`, which you run yourself, adds `~/.config/opencode/plugins/lid-agents.js`, sets `prevent_idle_sleep` in `~/.codex/config.toml`, and adds tagged hooks to `~/.claude/settings.json` and `~/.codex/hooks.json`. It and `agents remote` also set `remoteControlAtStartup` and `inputNeededNotifEnabled` in `~/.claude/settings.json`, Claude Code settings that `agents uninstall` leaves as they are. The app is built from this repo by GitHub Actions, signed with a Developer ID and notarized by Apple, so Gatekeeper opens it without warnings however you install it.
 
@@ -137,16 +159,20 @@ Files: `Lid Agents.app` (in `/Applications` from the DMG, `~/Applications` from 
 | Agents watched | `claude codex gemini aider opencode amp goose cursor-agent droid` | `AGENTS_NAMES` |
 | Idle minutes before pausing | 3 | `AGENTS_IDLE_MINUTES` |
 | CPU % that counts as busy (an agent plus its child processes) | 5 | `AGENTS_CPU` |
+| Slow other apps while the lid is closed | On | The cup → **Settings** → **Slow other apps while the lid is closed**, or `agents apps off` / `on` |
+| Apps never slowed | Simulator, Xcode, Docker, OrbStack, Google Chrome, Chromium, Safari, Firefox, Arc, Brave Browser, Microsoft Edge | The cup → **Settings** → **Keep at Full Speed**, or `agents apps keep <app>` / `drop <app>` / `reset` |
+| Keep running whenever an agent starts | On | The cup → **Settings** → **Keep running whenever an agent starts**, or `agents auto off` / `on`. Needs the menu bar app running. |
 | Minutes a closed Mac stays awake for an agent that needs your answer | 3 | The cup → **Settings** → **Wait for your answer**, `agents wait 10`, or `AGENTS_WAIT_MINUTES` |
 | Minutes an agent may sit "busy" at almost no CPU, usually waiting on you, before pausing | 30 | `AGENTS_QUIET_MINUTES` |
-| Hard cap (hours) | 8 | `AGENTS_HOURS`, or `agents keep 4h` |
+| Time limit while agents work (hours) | none | `AGENTS_HOURS`, or `agents keep 4h` |
 | Battery floor | 15% | `AGENTS_MIN_BATTERY` |
 
 The `AGENTS_*` variables apply to the `agents` command in your shell. The menu bar app uses the defaults.
 
 ## Safety
 
-- **Never put the Mac in a bag while the cup is full.** With the lid shut it can't get rid of heat. Lid Agents pauses when your agents finish, but a long task can still run for hours.
+- **Never put the Mac in a bag while the cup is full.** With the lid shut it can't get rid of heat. Lid Agents pauses when your agents finish, but a long task can still run for hours. The cup fills by itself when an agent starts, so glance at it (or press <kbd>⌃0</kbd>) before you pack up.
+- When the battery floor, a time limit you set or a prompt you didn't answer switches keep off, it stays off until those agents have finished, so it can't switch straight back on.
 - Plug in for long runs, and run agents in `tmux` or a terminal that survives disconnects.
 - Your lock screen still works: a closed, awake Mac is locked as usual.
 

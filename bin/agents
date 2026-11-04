@@ -3,10 +3,15 @@
 #
 #   agents keep [hours]           closing the lid keeps agents running (screen off) while
 #                                 one is busy; pauses again once they have all gone idle
-#                                 (hours = hard cap, default 8, 0 = no cap)
+#                                 (no time limit unless you give one; the battery floor always applies)
 #   agents keep --always [hours]  keep running whether or not an agent is busy (default 3h)
-#   agents pause                  closing the lid sleeps the Mac and agents pause (normal)
+#   agents pause                  closing the lid sleeps the Mac and agents pause (normal); with
+#                                 auto on, it stays off until the agents running now have finished
 #   agents toggle                 switch between keep and pause
+#   agents auto [on|off]          keep switches itself on whenever an agent starts working (on by
+#                                 default; the menu bar app does the switching)
+#   agents apps [on|off]          with the lid closed, slow the apps no agent is using (on by default)
+#   agents apps keep|drop <app>   always keep an app at full speed (or stop); agents apps reset
 #   agents                        status
 #   agents busy                   which agent processes count as busy (or need you) right now
 #   agents focus <pid>            bring an agent's terminal or editor to the front, at its own tab
@@ -24,9 +29,9 @@
 #   agents version
 #
 # Mechanism: `pmset -a disablesleep 1` sets the kernel SleepDisabled flag, which also
-# blocks lid-close sleep (caffeinate and power assertions cannot). The lid sensor still
-# turns the built-in display off. A background guard reverts it when the agents go idle,
-# the cap expires or the battery reaches the floor, and if the lid is shut then, sleeps the Mac.
+# blocks lid-close sleep (caffeinate and power assertions cannot). When the lid closes, the guard
+# puts the display to sleep (`pmset displaysleepnow`), so the Mac locks as usual. A background guard reverts it when the agents go idle,
+# a cap you chose expires or the battery reaches the floor, and if the lid is shut then, sleeps the Mac.
 #
 # "Busy" = an agent CLI that has a caffeinate child (Claude Code holds `caffeinate -i -t 300`
 # only while working; so does OpenCode with the Lid Agents plugin), holds a sleep assertion
@@ -47,6 +52,7 @@ BUNDLE_ID="io.github.liam-machine.lid-agents"
 STATE_DIR="$HOME/.cache/lid-agents"
 GUARD_PID="$STATE_DIR/guard.pid"
 KEEP_MODE="$STATE_DIR/keep-mode"               # busy or always: what the last `agents keep` chose
+AUTO_HOLD="$STATE_DIR/auto-hold"               # paused while agents worked: no auto keep until they finish
 LOG="$STATE_DIR/lid-agents.log"
 SUDOERS_FILE="/etc/sudoers.d/lid-agents"
 LAUNCH_AGENT="$HOME/Library/LaunchAgents/$BUNDLE_ID.plist"
@@ -62,10 +68,10 @@ CPU_THRESHOLD="${AGENTS_CPU:-5}"
 IDLE_MINUTES="${AGENTS_IDLE_MINUTES:-3}"
 # A "busy" signal (caffeinate child, sleep assertion) with almost no CPU across the agent and its
 # children for this long means it's waiting on the user (an approval prompt) or an idle event
-# was missed, so the guard pauses rather than keep a closed Mac awake until the cap.
+# was missed, so the guard pauses rather than keep a closed Mac awake indefinitely.
 QUIET_MINUTES="${AGENTS_QUIET_MINUTES:-30}"
 QUIET_CPU="${AGENTS_QUIET_CPU:-1}"
-DEFAULT_HOURS="${AGENTS_HOURS:-8}"
+DEFAULT_HOURS="${AGENTS_HOURS:-0}"             # 0: no time limit while agents work, only the battery floor
 DEFAULT_WAIT_MINUTES=3
 # A process an agent started after it was marked as waiting, alive at least this long, means the
 # prompt was answered and a tool is running (statusline and hook commands are shorter-lived)
@@ -79,6 +85,14 @@ wait_minutes() {
   [ -n "$v" ] || v="$(defaults read "$BUNDLE_ID" WaitMinutes 2>/dev/null)"
   case "$v" in ''|*[!0-9]*) v="$DEFAULT_WAIT_MINUTES" ;; esac
   echo "$v"
+}
+
+# Whether keep switches itself on when an agent starts working: on unless you turned it off (the
+# cup → Settings → Keep running whenever an agent starts, or `agents auto off`)
+auto_keep_on() {
+  local v="${AGENTS_AUTO:-}"
+  [ -n "$v" ] || v="$(defaults read "$BUNDLE_ID" AutoKeep 2>/dev/null)"
+  case "$v" in 0|false|off|no) return 1 ;; *) return 0 ;; esac
 }
 
 KEEP_TEXT="Lid closed → agents keep running"
@@ -116,6 +130,26 @@ on_battery() { battery_line | grep -q "'Battery Power'"; }
 battery_pct() { battery_line | grep -Eo '[0-9]+%' | head -1 | tr -d '%'; }
 
 lid_closed() { ioreg -r -k AppleClamshellState -d 1 | grep -q '"AppleClamshellState" = Yes'; }
+
+# A monitor other than the built-in one is plugged in (a closed lid is then clamshell mode, in use).
+# Reads `system_profiler SPDisplaysDataType`: one "Resolution:" per display, "Display Type: Built-in…"
+# for the Mac's own.
+read_displays() {
+  if [ -n "${AGENTS_TEST_FIXTURE:-}" ]; then cat "$AGENTS_TEST_FIXTURE/displays" 2>/dev/null
+  else system_profiler SPDisplaysDataType 2>/dev/null; fi
+}
+external_display() {
+  read_displays |
+    awk '/Resolution:/ { n++ } /Display Type: Built-[Ii]n/ { b++ } END { exit !(n > b) }'
+}
+
+# Closing the lid only turns the backlight off. macOS sleeps the display, and locks the Mac, on its own
+# timer, which any app holding a display assertion stops (Chrome capturing a tab, a video), so a
+# closed Mac could sit with its display on and unlocked for days. Sleep it now, unless a monitor is in use.
+sleep_display() {
+  if external_display; then log "lid closed with a monitor plugged in: display left on"; return 0; fi
+  pmset displaysleepnow >/dev/null 2>&1 && log "lid closed: display asleep, Mac locked"
+}
 
 guard_running() { [ -f "$GUARD_PID" ] && kill -0 "$(cat "$GUARD_PID")" 2>/dev/null; }
 
@@ -301,6 +335,145 @@ busy_agents() {
 
 busy_count() { busy_agents | wc -l | tr -d ' '; }
 
+battery_low() { on_battery && [ "$(battery_pct)" -le "$MIN_BATTERY" ]; }
+
+# auto_state <keep|pause> <agent report>: what auto keep does now
+#   off   you turned it off: keep only when you ask
+#   on    keep switches on as soon as an agent starts working
+#   due   …and one is working, so the menu bar app switches it on (`agents keep --auto`)
+#   held  you, or the guard, switched keep off while agents were at work (a pause, the battery
+#         floor, a cap you chose), so it stays off until those have all finished, working or waiting on
+#         you. The next agent to start after that switches it on again.
+# The hold is cleared here, the first time no agent is working or waiting.
+auto_state() {
+  if [ -f "$AUTO_HOLD" ] && [ -z "$2" ]; then rm -f "$AUTO_HOLD"; fi
+  if ! auto_keep_on; then echo off
+  elif [ -f "$AUTO_HOLD" ]; then echo held
+  elif [ "$1" = pause ] && printf '%s\n' "$2" | awk 'NF && $3 " " $4 != "needs input" { f = 1 } END { exit !f }' \
+       && ! battery_low; then echo due
+  else echo on; fi
+}
+
+# --- Other apps: slowed while the lid is closed, so the agents get the Mac ----------------------
+#
+# With the lid closed and keep on, every app the agents aren't using drops to background priority
+# (`taskpolicy -b`: lowest CPU and disk priority; it keeps running) and is put back the moment the
+# lid opens or keep switches off. Only apps in /Applications or ~/Applications are touched, never
+# system processes, command-line tools (a dev server, node, python) or Playwright's browsers.
+# Kept at full speed:
+#   - wherever an agent runs (VS Code, cmux, Terminal…) and any app it started (a simulator, a
+#     browser it drives), found from the process tree
+#   - any app holding a power assertion (a call, audio, Chrome capturing a tab)
+#   - the KeepApps list: apps an agent uses without starting them (your own Chrome, Docker)
+SLOWED="$STATE_DIR/slowed"                     # "pid<TAB>path" of each process this script slowed
+DEFAULT_KEEP_APPS="Simulator,Xcode,Docker,OrbStack,Google Chrome,Chromium,Safari,Firefox,Arc,Brave Browser,Microsoft Edge"
+
+slow_apps_on() {
+  local v="${AGENTS_SLOW_APPS:-}"
+  [ -n "$v" ] || v="$(defaults read "$BUNDLE_ID" SlowOtherApps 2>/dev/null)"
+  case "$v" in 0|false|off|no) return 1 ;; *) return 0 ;; esac
+}
+
+# The apps always kept at full speed, comma-separated bundle names (an empty list is a choice)
+keep_apps() {
+  if [ -n "${AGENTS_KEEP_APPS+set}" ]; then echo "$AGENTS_KEEP_APPS"; return 0; fi
+  defaults read "$BUNDLE_ID" KeepApps 2>/dev/null || echo "$DEFAULT_KEEP_APPS"
+}
+
+# The user's own processes and their scheduling priority, "pid pri" (4 or less: already in the
+# background, so it's left alone and never "put back")
+read_mine() {
+  if [ -n "${AGENTS_TEST_FIXTURE:-}" ]; then
+    if [ -f "$AGENTS_TEST_FIXTURE/pri" ]; then cat "$AGENTS_TEST_FIXTURE/pri"; else awk '{ print $1, 31 }' "$AGENTS_TEST_FIXTURE/procs"; fi
+  else ps -x -U "$(id -u)" -o pid=,pri=; fi
+}
+
+# What to do about each app right now, one line each, tab-separated:
+#   slow <pid> <path>        a process of an app nothing needs
+#   keep <app> <why>         an app kept at full speed: agent, list or busy (holds an assertion)
+apps_plan() {
+  {
+    proc_table
+    agent_report | awk '{ print "agent", $1 }'
+    read_mine | awk '{ print "mine", $1, $2 }'
+    read_assertions | sed -nE 's/^[[:space:]]*pid ([0-9]+)\(.*/assert \1/p; s/^[[:space:]]*Created for PID: ([0-9]+).*/assert \1/p'
+  } |
+  awk -v names="$AGENT_NAMES" -v keep="$(keep_apps),Lid Agents" -v home="$HOME" '
+    function bundle(c,    i) { i = index(c, ".app/"); return i ? substr(c, 1, i + 3) : "" }
+    function app(b) { sub(/\.app$/, "", b); sub(/.*\//, "", b); return b }
+    function listed(c,    i) { for (i = 1; i <= nk; i++) if (index(c, "/" k[i] ".app/")) return k[i]; return "" }
+    function down(p, depth,    n, i, kid) {
+      if (depth > 32) return
+      if (bundle(cmd[p]) != "") why[bundle(cmd[p])] = "agent"
+      n = split(kids[p], kid, " ")
+      for (i = 1; i <= n; i++) down(kid[i], depth + 1)
+    }
+    BEGIN {
+      n = split(names, a, " "); for (i = 1; i <= n; i++) want[a[i]] = 1
+      nk = split(keep, k, ","); for (i = 1; i <= nk; i++) gsub(/^ +| +$/, "", k[i])
+    }
+    $1 == "agent" { agent[$2] = 1; next }
+    $1 == "mine" { mine[$2] = 1; pri[$2] = $3; next }
+    $1 == "assert" { held[$2] = 1; next }
+    {
+      pid = $1; pp[pid] = $2; c = $5; for (i = 6; i <= NF; i++) c = c " " $i; cmd[pid] = c
+      if (pid != $2) kids[$2] = kids[$2] " " pid
+      b = c; sub(/.*\//, "", b); if (b in want) agent[pid] = 1
+    }
+    END {
+      for (ag in agent) {
+        if (!(ag in cmd)) continue
+        p = ag
+        for (d = 0; d < 32 && (p in cmd); d++) {            # where it runs
+          if (bundle(cmd[p]) != "") why[bundle(cmd[p])] = "agent"
+          if (pp[p] == p) break
+          p = pp[p]
+        }
+        down(ag, 0)                                         # what it started
+      }
+      for (p in held) if ((p in cmd) && bundle(cmd[p]) != "" && !(bundle(cmd[p]) in why)) why[bundle(cmd[p])] = "busy"
+      for (p in cmd) {
+        c = cmd[p]; b = bundle(c)
+        if (b == "" || (index(c, "/Applications/") != 1 && index(c, home "/Applications/") != 1)) continue
+        if (b in why) continue
+        if (listed(c) != "") { if (listed(c) != "Lid Agents") why[b] = "list"; continue }
+        if (!(p in mine) || pri[p] + 0 <= 4) continue
+        print "slow\t" p "\t" c
+      }
+      for (b in why) if (index(b, "/Applications/") == 1 || index(b, home "/Applications/") == 1) print "keep\t" app(b) "\t" why[b]
+    }'
+}
+
+# "A, B": the apps behind "pid<TAB>path" lines
+apps_names() {
+  awk -F'\t' 'NF >= 2 { b = $2; i = index(b, ".app/"); if (i) b = substr(b, 1, i - 1); sub(/.*\//, "", b)
+    if (!(b in seen)) { seen[b] = 1; out = out (out == "" ? "" : ", ") b } } END { print out }'
+}
+
+# apps_sync closed|open: slow the other apps while the lid is closed, put them back otherwise.
+# Each one is put back only if its pid still runs the same program (pids get reused).
+apps_sync() {
+  local want="" todo what pid path now slowed=0 back=0
+  if [ "$1" = closed ] && slow_apps_on; then want="$(apps_plan | awk -F'\t' '$1 == "slow" { print $2 "\t" $3 }')"; fi
+  [ -n "$want" ] || [ -s "$SLOWED" ] || return 0
+  todo="$({ awk '{ print "old\t" $0 }' "$SLOWED" 2>/dev/null; printf '%s\n' "$want" | awk 'NF { print "want\t" $0 }'; } |
+    awk -F'\t' '$1 == "old" { old[$2] = $3 } $1 == "want" { new[$2] = $3 }
+      END { for (p in old) print ((p in new) ? "stay" : "back") "\t" p "\t" old[p]
+            for (p in new) if (!(p in old)) print "slow\t" p "\t" new[p] }')"
+  now=""
+  while IFS=$'\t' read -r what pid path; do
+    case "$what" in
+      stay) now="$now$pid	$path"$'\n' ;;
+      back) if [ "$(ps -o comm= -p "$pid" 2>/dev/null)" = "$path" ] && taskpolicy -B -p "$pid" 2>/dev/null; then back=$((back + 1)); fi ;;
+      slow) if taskpolicy -b -p "$pid" 2>/dev/null; then now="$now$pid	$path"$'\n'; slowed=$((slowed + 1)); fi ;;
+    esac
+  done <<< "$todo"
+  printf '%s' "$now" > "$SLOWED"
+  [ -s "$SLOWED" ] || rm -f "$SLOWED"
+  if [ "$slowed" -gt 0 ]; then log "apps: slowed $(printf '%s' "$now" | apps_names) with the lid closed"; fi
+  if [ "$back" -gt 0 ]; then log "apps: $back process(es) back to full speed"; fi
+}
+
 need_rule() {
   has_sudo_rule && return 0
   echo "agents: setup is incomplete. Run:  agents install" >&2
@@ -321,12 +494,21 @@ start_guard() {
     deadline=$(( $(date +%s) + $(awk "BEGIN {printf \"%d\", $hours * 3600}") ))
   fi
   (
-    trap 'exit 0' TERM
+    trap 'apps_sync open; exit 0' TERM
     idle=0
     quiet=0
     waited=0
-    while sleep 60; do
-      keeping || exit 0                             # paused elsewhere
+    tick=0
+    lid=""
+    # Every 5 seconds: the lid, so other apps are back to full speed as soon as it opens.
+    # Every minute (12 ticks): everything else, and any app that started since.
+    while sleep 5; do
+      keeping || { apps_sync open; exit 0; }       # paused elsewhere
+      tick=$((tick + 1))
+      now="$(lid_closed && echo closed || echo open)"
+      if [ "$now" = closed ] && [ "$lid" != closed ]; then sleep_display; fi
+      if [ "$now" != "$lid" ] || [ $((tick % 12)) = 0 ]; then apps_sync "$now"; lid="$now"; fi
+      [ $((tick % 12)) = 0 ] || continue
       reason=""
       if [ "$deadline" -gt 0 ] && [ "$(date +%s)" -ge "$deadline" ]; then
         reason="cap (${hours}h) reached"
@@ -364,6 +546,10 @@ start_guard() {
         fi
       fi
       if [ -n "$reason" ]; then
+        # Stopped with agents still at work (cap, battery, waiting on you): auto keep mustn't
+        # switch straight back on, so hold it until they've finished
+        [ "$idle" -ge "$IDLE_MINUTES" ] || : > "$AUTO_HOLD"
+        apps_sync open
         if set_flag 0; then
           log "auto-pause: $reason"
           # the lid-close event already happened, so nothing else would sleep the Mac now
@@ -379,7 +565,14 @@ start_guard() {
 }
 
 cmd_keep() {
-  local mode="busy" hours=""
+  local mode="busy" hours="" auto=""
+  # --auto: the menu bar app saw an agent start. Checked again here, so a pause that landed since
+  # (from a terminal, say) wins; exits 3 when there's nothing to do.
+  if [ "${1:-}" = "--auto" ]; then
+    [ "$(auto_state "$(keeping && echo keep || echo pause)" "$(agent_report)")" = due ] || exit 3
+    has_sudo_rule || exit 3
+    auto=", auto"; shift
+  fi
   if [ "${1:-}" = "--always" ]; then mode="always"; shift; fi
   hours="${1:-}"; hours="${hours%h}"
   if [ -z "$hours" ]; then
@@ -388,13 +581,18 @@ cmd_keep() {
   case "$hours" in ''|*[!0-9.]*) echo "agents: hours must be a number, got '$1'" >&2; exit 1 ;; esac
 
   need_rule
-  set_flag 1 || exit 1
+  if ! set_flag 1; then
+    # one failure report, not one every 5 seconds while the agent works
+    [ -z "$auto" ] || : > "$AUTO_HOLD"
+    exit 1
+  fi
+  rm -f "$AUTO_HOLD"
   stop_guard
   start_guard "$mode" "$hours"
   echo "$mode" > "$KEEP_MODE"
-  log "keep (mode=$mode, cap=${hours}h, floor=${MIN_BATTERY}%)"
-
   local cap="cap ${hours}h"; [ "$hours" = "0" ] && cap="no cap"
+  log "keep (mode=$mode, $cap, floor=${MIN_BATTERY}%$auto)"
+
   local busy; busy="$(busy_count)"
   echo "$KEEP_TEXT"
   if [ "$mode" = "always" ]; then
@@ -415,8 +613,16 @@ cmd_pause() {
   need_rule
   stop_guard
   set_flag 0 || exit 1
+  apps_sync open
+  : > "$AUTO_HOLD"          # the agents at work now stay paused; cleared once they've finished
   log "pause"
   echo "$PAUSE_TEXT"
+  auto_keep_on || return 0
+  if [ -n "$(agent_report)" ]; then
+    echo "  Off for the agents running now. Once they've finished, the next agent to start switches keep on again (agents auto off: never)."
+  else
+    echo "  The next agent to start switches keep on again (agents auto off: never)."
+  fi
 }
 
 cmd_status() {
@@ -435,6 +641,15 @@ cmd_status() {
   echo "  busy:    $(printf '%s\n' "$report" | awk 'NF && $3 " " $4 != "needs input"' | wc -l | tr -d ' ') agent(s)"
   echo "  waiting: $(printf '%s\n' "$report" | awk 'NF && $3 " " $4 == "needs input"' | wc -l | tr -d ' ') need you · a closed Mac stays awake $(wait_minutes) min for an answer (agents wait)"
   echo "  battery: $(battery_pct)% $(on_battery && echo '(on battery)' || echo '(on AC)') · lid $(lid_closed && echo closed || echo open)"
+  case "$(auto_state "$(keeping && echo keep || echo pause)" "$report")" in
+    off)  echo "  auto:    off: keep only when you ask (agents auto on)" ;;
+    held) echo "  auto:    off for the agents running now; the next one to start after they finish switches keep on" ;;
+    *)    echo "  auto:    on: an agent that starts working switches keep on (agents auto off)"
+          pgrep -x LidAgents >/dev/null || echo "           …but the menu bar app does that, and it isn't running" ;;
+  esac
+  if [ -s "$SLOWED" ]; then echo "  apps:    slowed while the lid is closed: $(apps_names < "$SLOWED") (agents apps)"
+  elif slow_apps_on; then echo "  apps:    with the lid closed, apps no agent is using are slowed (agents apps)"
+  else echo "  apps:    left alone with the lid closed (agents apps on)"; fi
   echo "  hotkey:  $(current_hotkey)"
   if [ -d "$(dirname "$(claude_settings_file)")" ]; then
     local missing remote; missing="$(remote_missing "$report")"
@@ -458,18 +673,23 @@ cmd_status() {
 keep_mode() { cat "$KEEP_MODE" 2>/dev/null || echo busy; }
 
 # One machine-readable line for the menu bar app:
-#   <keep|pause> <busy> <guard 0|1> <battery%> <ac|battery> <open|closed> <setup ok|missing> <idle minutes>
-#   <busy|always>
+#   <keep|pause> <busy> <guard 0|1> <battery% or - without one> <ac|battery> <open|closed> <setup ok|missing> <idle minutes>
+#   <busy|always> <auto off|on|due|held>       (see auto_state)
 # --menu adds, from the same agent report, what the menu lists:
 #   remote <on|off|unset|none>        Remote Control for new Claude sessions (unset: never chosen;
 #                                     none: no Claude Code here)
 #   agent <pid> <name> <working|waiting> <yes|no|-> <folder>   yes|no: a Claude session on Remote Control
+#   apps <on|off> <apps slowed now>
 cmd_state() {
-  local report; report="$(agent_report)"
-  printf '%s %s %s %s %s %s %s %s %s\n' \
-    "$(keeping && echo keep || echo pause)" "$(printf '%s\n' "$report" | awk 'NF && $3 " " $4 != "needs input"' | wc -l | tr -d ' ')" \
-    "$(guard_running && echo 1 || echo 0)" "$(battery_pct)" "$(on_battery && echo battery || echo ac)" \
-    "$(lid_closed && echo closed || echo open)" "$(has_sudo_rule && echo ok || echo missing)" "$IDLE_MINUTES" "$(keep_mode)"
+  local report keep; report="$(agent_report)"
+  keep="$(keeping && echo keep || echo pause)"
+  # Apps left slowed by a guard that was killed outright: put them back
+  if [ -s "$SLOWED" ] && { [ "$keep" = pause ] || ! guard_running; }; then apps_sync open; fi
+  printf '%s %s %s %s %s %s %s %s %s %s\n' \
+    "$keep" "$(printf '%s\n' "$report" | awk 'NF && $3 " " $4 != "needs input"' | wc -l | tr -d ' ')" \
+    "$(guard_running && echo 1 || echo 0)" "$(battery_pct | grep . || echo -)" "$(on_battery && echo battery || echo ac)" \
+    "$(lid_closed && echo closed || echo open)" "$(has_sudo_rule && echo ok || echo missing)" "$IDLE_MINUTES" "$(keep_mode)" \
+    "$(auto_state "$keep" "$report")"
   [ "${1:-}" = "--menu" ] || return 0
   local remote="none" sessions="" pid name why1 why2 state phone
   if [ -d "$(dirname "$(claude_settings_file)")" ]; then
@@ -477,6 +697,7 @@ cmd_state() {
     sessions="$(remote_sessions "$report")"
   fi
   echo "remote $remote"
+  echo "apps $(slow_apps_on && echo on || echo off) $(cat "$SLOWED" 2>/dev/null | apps_names | awk -F', ' '{ n = ($0 == "" ? 0 : NF) } END { print n + 0 }')"
   printf '%s\n' "$report" | while read -r pid name why1 why2 _; do
     [ -n "$pid" ] || continue
     state=working; [ "$why1 $why2" = "needs input" ] && state=waiting
@@ -1081,6 +1302,68 @@ cmd_wait() {
   echo "A closed Mac now stays awake $m min for an agent that needs you."
 }
 
+# agents apps: with the lid closed, slow the apps no agent is using
+cmd_apps() {
+  local list name n
+  list="$(keep_apps)"
+  case "${1:-}" in
+    on)  defaults write "$BUNDLE_ID" SlowOtherApps -bool true; log "apps: slow others on" ;;
+    off) defaults write "$BUNDLE_ID" SlowOtherApps -bool false; log "apps: slow others off" ;;
+    keep|drop)
+      [ $# -ge 2 ] || { echo "agents: which app? e.g. agents apps $1 \"Blender\"" >&2; exit 1; }
+      local how="$1"; shift
+      for name in "$@"; do
+        name="${name%/}"; name="${name##*/}"; name="${name%.app}"
+        list="$(printf '%s\n' "$list" | tr ',' '\n' | awk -v n="$name" 'NF && $0 != n' | paste -sd, -)"
+        [ "$how" = drop ] || list="${list:+$list,}$name"
+      done
+      defaults write "$BUNDLE_ID" KeepApps -string "$list"
+      log "apps: always keep: $list" ;;
+    reset) defaults delete "$BUNDLE_ID" KeepApps 2>/dev/null; list="$DEFAULT_KEEP_APPS" ;;
+    '') ;;
+    *) echo "agents: apps takes on, off, keep <app>, drop <app> or reset; got '$1'" >&2; exit 1 ;;
+  esac
+  if slow_apps_on; then
+    echo "With the lid closed and agents running, apps no agent is using are slowed (they keep running"
+    echo "at background priority) and put back at full speed when the lid opens. Never: agents apps off"
+  else
+    echo "Other apps are left alone with the lid closed. Slow them so agents get the Mac: agents apps on"
+  fi
+  echo "  Always at full speed: ${list:-(none)}"
+  echo "    add one: agents apps keep \"Blender\" · remove: agents apps drop Safari · defaults: agents apps reset"
+  local plan; plan="$(apps_plan)"
+  n="$(printf '%s\n' "$plan" | awk -F'\t' '$1 == "keep" && $3 == "agent" { print $2 }' | sort -u | paste -sd, - | sed 's/,/, /g')"
+  echo "  Where your agents run, and what they started: ${n:-none running}"
+  n="$(printf '%s\n' "$plan" | awk -F'\t' '$1 == "keep" && $3 == "busy" { print $2 }' | sort -u | paste -sd, - | sed 's/,/, /g')"
+  [ -z "$n" ] || echo "  Doing something it asked macOS to stay awake for (a call, audio): $n"
+  if [ -s "$SLOWED" ]; then
+    echo "  Slowed now: $(apps_names < "$SLOWED")"
+  elif slow_apps_on; then
+    n="$(printf '%s\n' "$plan" | awk -F'\t' '$1 == "slow" { print $2 "\t" $3 }' | apps_names)"
+    echo "  Would be slowed if you closed the lid now: ${n:-nothing}"
+  fi
+}
+
+# agents auto [on|off]: whether keep switches itself on when an agent starts working. The same
+# setting as the menu bar's "Keep running whenever an agent starts"; the app does the switching.
+cmd_auto() {
+  case "${1:-}" in
+    on)  defaults write "$BUNDLE_ID" AutoKeep -bool true; log "auto keep: on" ;;
+    off) defaults write "$BUNDLE_ID" AutoKeep -bool false; log "auto keep: off" ;;
+    '')  ;;
+    *)   echo "agents: auto takes on or off, got '$1'" >&2; exit 1 ;;
+  esac
+  if auto_keep_on; then
+    echo "Keep switches on by itself whenever an agent starts working, and off once they've finished."
+    echo "  Pausing (the hotkey, the cup, agents pause) keeps it off until the agents running now have finished."
+    echo "  keep only when you ask: agents auto off"
+    pgrep -x LidAgents >/dev/null || echo "  The menu bar app does the switching, and it isn't running: open Lid Agents."
+  else
+    echo "Keep switches on only when you ask (the hotkey, the cup, agents keep)."
+    echo "  switch on by itself whenever an agent starts: agents auto on"
+  fi
+}
+
 cmd_integrate() {
   # --refresh: quiet upgrade step, run by install.sh and the app at launch; changes nothing new
   if [ "${1:-}" = "--refresh" ]; then
@@ -1150,6 +1433,7 @@ cmd_integrate() {
 cmd_uninstall() {
   if keeping && has_sudo_rule; then cmd_pause >/dev/null; fi
   stop_guard
+  apps_sync open
   pkill -x LidAgents 2>/dev/null
   rm -f "$LAUNCH_AGENT"
   if [ -f "$SUDOERS_FILE" ]; then as_root "rm -f '$SUDOERS_FILE'" && echo "Removed $SUDOERS_FILE"; fi
@@ -1195,6 +1479,8 @@ case "${1:-status}" in
   integrate)  shift; cmd_integrate "$@" ;;
   hotkey)     shift; cmd_hotkey "$@" ;;
   wait)       shift; cmd_wait "$@" ;;
+  auto)       shift; cmd_auto "$@" ;;
+  apps)       shift; cmd_apps "$@" ;;
   remote)     shift; cmd_remote "$@" ;;
   focus)      shift; cmd_focus "$@" ;;
   uninstall)  cmd_uninstall ;;
