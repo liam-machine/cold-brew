@@ -1,0 +1,19 @@
+910001 1 0.5 10:00 /Applications/Visual Studio Code.app/Contents/MacOS/Electron
+910002 910001 0.1 10:00 /Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper.app/Contents/MacOS/Code Helper
+910003 910002 0.0 05:00 /bin/zsh
+910004 910003 20.0 05:00 /Users/me/.local/bin/claude
+910005 910004 30.0 00:30 /Users/me/Library/Caches/ms-playwright/chromium-1/chrome-mac/Chromium.app/Contents/MacOS/Chromium
+910006 910004 5.0 00:30 /Applications/Started By Agent.app/Contents/MacOS/Thing
+910010 1 0.0 1:00:00 /Applications/Slack.app/Contents/MacOS/Slack
+910011 910010 0.0 1:00:00 /Applications/Slack.app/Contents/Frameworks/Slack Helper.app/Contents/MacOS/Slack Helper
+910020 1 1.0 1:00:00 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+910021 910020 0.5 1:00:00 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper
+910030 1 8.0 10:00 /Applications/zoom.us.app/Contents/MacOS/zoom.us
+910040 1 0.0 1:00:00 /Applications/Spotify.app/Contents/MacOS/Spotify
+910050 1 0.0 1:00:00 /System/Applications/Notes.app/Contents/MacOS/Notes
+910060 1 0.1 1:00:00 /Applications/Lid Agents.app/Contents/MacOS/LidAgents
+910070 1 0.0 1:00:00 /Applications/Someone Else.app/Contents/MacOS/Else
+910080 1 0.2 2:00:00 /Applications/iTerm.app/Contents/MacOS/iTerm2
+910081 910080 0.0 2:00:00 /usr/bin/login
+910082 910081 0.0 2:00:00 /Users/me/.local/bin/claude
+910090 1 0.0 2:00:00 /opt/homebrew/bin/node

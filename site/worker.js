@@ -158,7 +158,7 @@ function page(version, origin) {
     <h2>Good to know</h2>
     <ul class="facts">
       <li>It only stays awake while an agent is actually working, never because a session is open.</li>
-      <li>It turns itself off after 8 hours or at 15% battery, whichever comes first.</li>
+      <li>It turns itself off when your agents finish, or at 15% battery.</li>
       <li>It asks for your password once, to allow a single command: <code>pmset -a disablesleep</code>.</li>
       <li>Don't put the Mac in a bag while the cup is full. It can't get rid of heat with the lid shut.</li>
     </ul>

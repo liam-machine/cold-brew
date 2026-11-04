@@ -15,6 +15,9 @@ request.
 - **Detection** (`cases/`): which processes `agents busy` reports, and why.
 - **`agents focus`** (`focus/`): which app and tab it goes to for an agent in cmux, Terminal, iTerm2, tmux (attached or not), WezTerm, kitty, VS Code (with cmux ids it inherited) and an app it doesn't know; and that it says so when it can't tell.
 - **Remote Control**: `agents remote on/off`, `integrate` turning it on only when never chosen, and `state --menu` reading which Claude sessions are connected.
+- **Auto keep**: an agent working with keep off is due to switch it on, one that needs you isn't; a pause holds it until every agent has finished, then the hold clears; `keep --auto` does nothing while held or switched off.
+- **Other apps** (`apps/`): from one snapshot, the app an agent runs in, apps it started, the keep list and an app holding a power assertion are kept; another user's app, one already in the background, system apps and command-line tools are left alone; the rest are slowed.
+- **Lid closed**: the display is put to sleep unless `system_profiler` lists a monitor besides the built-in one.
 - **`agents mark`**: a pid below an agent marks that agent and records its children at that
   moment; non-agents mark nothing; `working` clears and leaves a stamp; a clear that lands after
   a `mark waiting` started wins the race; it always exits 0.

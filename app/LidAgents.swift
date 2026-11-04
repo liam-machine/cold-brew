@@ -6,6 +6,7 @@
 
 import AppKit
 import Carbon.HIToolbox
+import UniformTypeIdentifiers
 import UserNotifications
 
 let bundleID = Bundle.main.bundleIdentifier ?? "io.github.liam-machine.lid-agents"
@@ -25,6 +26,18 @@ struct AgentState {
     var setupOK = true
     var idleMinutes = 3
     var always = false              // kept on whether or not an agent is busy (`agents keep --always`)
+    var auto = AutoKeep.on          // what keep does by itself when an agent starts (see auto_state in the script)
+}
+
+/// Whether keep switches itself on when an agent starts working (the AutoKeep default, on unless
+/// turned off). The script decides; this app does the switching, since it's what's always watching.
+enum AutoKeep: String {
+    case off                        // keep only when you ask
+    case on                         // switches on as soon as an agent starts working
+    case due                        // …and one is working, so switch it on now (`agents keep --auto`)
+    case held                       // paused while agents worked: off until they've finished
+
+    static var enabled: Bool { UserDefaults.standard.object(forKey: "AutoKeep") as? Bool ?? true }
 }
 
 /// One agent the menu lists: working, or stopped on a prompt and waiting for you
@@ -42,7 +55,26 @@ struct MenuSnapshot {
     var remoteOn: Bool?             // Remote Control for new Claude sessions (nil: no Claude Code here)
     var remoteUnset = false         // …and you've never chosen either way (it's off)
     var agents: [AgentRow] = []
+    var appsSlowed = 0              // other apps slowed right now (lid closed, keep on)
     var offPhone: [AgentRow] { agents.filter { $0.onPhone == false } }
+}
+
+/// With the lid closed and keep on, the `agents` guard slows every app no agent is using
+/// (background priority) and puts it back when the lid opens. These are the settings it reads.
+enum OtherApps {
+    // The same default as DEFAULT_KEEP_APPS in the script
+    static let defaultKeep = "Simulator,Xcode,Docker,OrbStack,Google Chrome,Chromium,Safari,Firefox,Arc,Brave Browser,Microsoft Edge"
+
+    static var slowOn: Bool { UserDefaults.standard.object(forKey: "SlowOtherApps") as? Bool ?? true }
+
+    /// Apps always kept at full speed, by bundle name
+    static var keep: [String] {
+        get {
+            (UserDefaults.standard.string(forKey: "KeepApps") ?? defaultKeep)
+                .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        }
+        set { UserDefaults.standard.set(newValue.joined(separator: ","), forKey: "KeepApps") }
+    }
 }
 
 enum Agents {
@@ -70,7 +102,8 @@ enum Agents {
         guard f.count >= 8 else { return AgentState() }
         return AgentState(keeping: f[0] == "keep", busy: Int(f[1]) ?? 0, guardRunning: f[2] == "1",
                           battery: Int(f[3]) ?? 0, onBattery: f[4] == "battery", lidClosed: f[5] == "closed",
-                          setupOK: f[6] == "ok", idleMinutes: Int(f[7]) ?? 3, always: f.count > 8 && f[8] == "always")
+                          setupOK: f[6] == "ok", idleMinutes: Int(f[7]) ?? 3, always: f.count > 8 && f[8] == "always",
+                          auto: f.count > 9 ? AutoKeep(rawValue: f[9]) ?? .on : .on)
     }
 
     static func state() -> AgentState { parseState(run(["state"]).output) }
@@ -81,7 +114,9 @@ enum Agents {
         var snap = MenuSnapshot(state: parseState(lines.first ?? ""))
         for line in lines.dropFirst() {
             let f = line.split(separator: " ", maxSplits: 5, omittingEmptySubsequences: false).map(String.init)
-            if f.count == 2, f[0] == "remote" {
+            if f.count == 3, f[0] == "apps" {
+                snap.appsSlowed = Int(f[2]) ?? 0
+            } else if f.count == 2, f[0] == "remote" {
                 snap.remoteOn = f[1] == "on" ? true : f[1] == "off" || f[1] == "unset" ? false : nil
                 snap.remoteUnset = f[1] == "unset"
             } else if f.count >= 5, f[0] == "agent", let pid = Int(f[1]) {
@@ -100,9 +135,11 @@ enum Agents {
             .joined(separator: ", ")
     }
 
+    /// Why the guard last switched keep off, if the most recent switch-off was the guard's
+    /// (nil when it was a pause from a terminal, or there's no log)
     static func lastAutoPauseReason() -> String? {
         guard let text = try? String(contentsOfFile: logPath, encoding: .utf8),
-              let line = text.split(separator: "\n").last(where: { $0.contains("auto-pause:") }),
+              let line = text.split(separator: "\n").last(where: { $0.contains("auto-pause:") || $0.hasSuffix(" pause") }),
               let range = line.range(of: "auto-pause: ") else { return nil }
         return String(line[range.upperBound...])
     }
@@ -398,8 +435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             defaults.set(Updater.current, forKey: "LastRunVersion")
             if !defaults.bool(forKey: "Welcomed") {
                 defaults.set(true, forKey: "Welcomed")
-                let how = self?.hotkey.map { "Press \($0.symbols) or click" } ?? "Click"
-                self?.notify("Lid Agents is ready", "\(how) the cup in the menu bar to keep agents running with the lid closed.")
+                self?.notify("Lid Agents is ready", self?.howToUse() ?? "")
             } else if let lastRun, Updater.isNewer(Updater.current, than: lastRun) {
                 self?.notify("Lid Agents updated to \(Updater.current)",
                              "See what's new at github.com/\(Updater.repo)/releases.")
@@ -493,8 +529,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             DispatchQueue.main.async {
                 self.apply(next)
                 if next.setupOK {
-                    let how = self.hotkey.map { "Press \($0.symbols) or click" } ?? "Click"
-                    self.notify("Lid Agents is set up", "\(how) the cup in the menu bar to keep agents running with the lid closed.")
+                    self.notify("Lid Agents is set up", self.howToUse())
                     self.offerRemoteControlIfNeeded()
                 } else {
                     let message = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -505,6 +540,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     @objc func finishSetup() { finishSetupIfNeeded(force: true) }
+
+    /// The first thing to know, for the welcome and set-up notifications
+    func howToUse() -> String {
+        if AutoKeep.enabled {
+            let off = hotkey.map { "Press \($0.symbols) or click the cup" } ?? "Click the cup"
+            return "When an agent starts working, closing the lid keeps it running until it's finished. \(off) to switch that off."
+        }
+        let how = hotkey.map { "Press \($0.symbols) or click" } ?? "Click"
+        return "\(how) the cup in the menu bar to keep agents running with the lid closed."
+    }
 
     /// ~/.local/bin/agents → the script inside this bundle (moving aside anything that isn't ours)
     func linkCommand() {
@@ -722,7 +767,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         reloadHotkeyIfChanged()
         DispatchQueue.global(qos: .utility).async {
             let next = Agents.state()
-            DispatchQueue.main.async { self.apply(next) }
+            DispatchQueue.main.async {
+                self.apply(next)
+                // An agent started working with keep off: switch it on (the script checks again)
+                if next.auto == .due && next.setupOK && !self.acting { self.perform(["keep", "--auto"]) }
+            }
         }
     }
 
@@ -763,7 +812,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     func apply(_ next: AgentState) {
         if state.keeping && !next.keeping && !acting {
-            notify("Agents paused", "Closing the lid sleeps the Mac again (\(Agents.lastAutoPauseReason() ?? "turned off elsewhere")).")
+            let reason = Agents.lastAutoPauseReason()
+            // With auto keep, agents finishing is routine: the cup empties without a banner every time.
+            // The battery floor, a cap you chose and waiting on you still say so.
+            let routine = next.auto != .off && reason?.hasPrefix("no agent busy") == true
+            if !routine {
+                notify("Agents paused", "Closing the lid sleeps the Mac again (\(reason ?? "turned off elsewhere")).")
+            }
         }
         state = next
         let button = statusItem.button
@@ -778,6 +833,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // A held hotkey auto-repeats; a second toggle before the first lands would undo it
         guard !acting else { return }
         acting = true
+        let auto = args.contains("--auto")
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Agents.run(args)
             let snap = Agents.snapshot()
@@ -785,9 +841,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             // Switching keep on is the moment before the lid closes: say which agents your phone can't reach
             let missing = next.keeping ? snap.offPhone : []
             DispatchQueue.main.async {
-                if result.status != 0 {
+                if auto && result.status == 3 {
+                    // nothing to do any more (paused from a terminal, or the agent already finished)
+                } else if result.status != 0 {
                     let message = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
                     self.notify("Lid Agents couldn't change the setting", message.isEmpty ? "Run `agents install` in a terminal." : message)
+                } else if auto {
+                    // Happens every time you set an agent going, so it's explained once, then the cup says it
+                    if !UserDefaults.standard.bool(forKey: "AutoKeepExplained") {
+                        UserDefaults.standard.set(true, forKey: "AutoKeepExplained")
+                        let working = snap.agents.filter { !$0.waiting }
+                        let off = self.hotkey.map { "\($0.symbols) or the cup" } ?? "The cup"
+                        self.notify("Agents keep running",
+                                    "\(working.isEmpty ? "An agent" : Agents.names(working)) started working, so closing the lid "
+                                    + "won't sleep the Mac until it's finished. \(off) switches it off; "
+                                    + "Settings → Keep running whenever an agent starts.")
+                    }
                 } else if next.keeping {
                     let always = args.contains("--always")
                     let remote = missing.isEmpty ? ""
@@ -797,7 +866,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                                     : next.busy == 0 ? "None busy yet: pauses in ~\(next.idleMinutes) min unless one starts."
                                     : "\(next.busy) busy. Close the lid whenever.") + remote)
                 } else {
-                    self.notify("Agents pause", "Closing the lid sleeps the Mac.")
+                    switch next.auto {
+                    case .held:
+                        self.notify("Agents pause", "Closing the lid sleeps the Mac. Off for the agents running now; "
+                                    + "once they've finished, the next one to start switches keep on again.")
+                    case .on, .due:
+                        self.notify("Agents pause", "Closing the lid sleeps the Mac until an agent starts working.")
+                    case .off:
+                        self.notify("Agents pause", "Closing the lid sleeps the Mac.")
+                    }
                 }
                 self.apply(next)
                 self.acting = false
@@ -807,7 +884,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     @objc func toggle() { perform(state.keeping ? ["pause"] : ["keep"]) }
     // The three "When the lid closes" choices; picking the one already chosen changes nothing
-    @objc func chooseSleep() { if state.keeping { perform(["pause"]) } }
+    @objc func chooseSleep() { if state.keeping || state.auto == .due { perform(["pause"]) } }
     @objc func chooseKeep() { if !state.keeping || state.always { perform(["keep"]) } }
     @objc func chooseKeepAlways() { if !state.keeping || !state.always { perform(["keep", "--always", "3"]) } }
 
@@ -858,13 +935,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
 
         // What's happening
-        menu.addItem(displayItem(text(state.keeping ? "Agents keep running with the lid closed" : "Closing the lid sleeps the Mac",
-                                      bold: true)))
+        let heading = state.keeping ? "Agents keep running with the lid closed"
+            : state.auto == .on || state.auto == .due ? "Closing the lid sleeps the Mac until an agent starts"
+            : "Closing the lid sleeps the Mac"
+        menu.addItem(displayItem(text(heading, bold: true)))
         let waiting = snap.agents.filter(\.waiting).count
         var summary = [state.busy == 0 ? "None working" : "\(state.busy) working"]
         if waiting > 0 { summary.append("\(waiting) need\(waiting == 1 ? "s" : "") you") }
+        if snap.appsSlowed > 0 { summary.append("\(snap.appsSlowed) app\(snap.appsSlowed == 1 ? "" : "s") slowed") }
         summary.append("battery \(state.battery)%\(state.onBattery ? "" : " (charging)")")
         menu.addItem(displayItem(text(summary.joined(separator: " · "))))
+        if !state.keeping && state.auto == .held {
+            menu.addItem(displayItem(text("Off for the agents running now; the next one to start after they finish switches it on",
+                                          color: .secondaryLabelColor, small: true)))
+        }
         if !state.setupOK {
             let item = NSMenuItem(title: "Finish Setup… (needs your password once)", action: #selector(finishSetup), keyEquivalent: "")
             item.target = self
@@ -876,9 +960,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // What to do
         section("When the lid closes")
         choice("Sleep (normal)", #selector(chooseSleep), chosen: !state.keeping,
-               tip: "Closing the lid sleeps the Mac and pauses your agents")
+               tip: "Closing the lid sleeps the Mac and pauses your agents"
+                   + (state.auto == .off ? "" : ". The agents running now stay paused; the next one to start after they finish switches keep on again"))
         choice("Keep running while agents work", #selector(chooseKeep), chosen: state.keeping && !state.always, hotkey: hotkey,
-               tip: "The Mac stays on with the lid closed until your agents finish (8-hour cap), then sleeps")
+               tip: "The Mac stays on with the lid closed until your agents finish, then sleeps. No time limit; it stops at the battery floor")
         choice("Keep running for 3 hours", #selector(chooseKeepAlways), chosen: state.keeping && state.always,
                tip: "The Mac stays on with the lid closed for 3 hours, even when no agent is working")
         menu.addItem(.separator())
@@ -978,6 +1063,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     func settingsItem(remoteOn: Bool?) -> NSMenuItem {
         let item = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
         let submenu = NSMenu()
+        let auto = NSMenuItem(title: "Keep running whenever an agent starts", action: #selector(toggleAutoKeep), keyEquivalent: "")
+        auto.target = self
+        auto.state = AutoKeep.enabled ? .on : .off
+        auto.toolTip = "On: an agent that starts working switches keep on, and it switches off once they've finished. "
+            + "Off: keep runs only when you switch it on"
+        submenu.addItem(auto)
+        submenu.addItem(otherAppsMenuItem())
+        submenu.addItem(keepAppsMenuItem())
         submenu.addItem(waitMenuItem())
         if let on = remoteOn {
             let remote = NSMenuItem(title: "Connect new Claude sessions to your phone", action: #selector(toggleRemote(_:)), keyEquivalent: "")
@@ -1000,6 +1093,93 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         submenu.addItem(log)
         item.submenu = submenu
         return item
+    }
+
+    // MARK: Other apps
+
+    func otherAppsMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "Slow other apps while the lid is closed", action: #selector(toggleSlowApps), keyEquivalent: "")
+        item.target = self
+        item.state = OtherApps.slowOn ? .on : .off
+        item.toolTip = "With the lid closed and agents running, apps no agent is using drop to background priority "
+            + "(they keep running) and are back at full speed when the lid opens. The app an agent runs in, "
+            + "apps it started, and the list below are never slowed"
+        return item
+    }
+
+    /// The apps always kept at full speed: click one to take it off, or add one
+    func keepAppsMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: "Keep at Full Speed", action: nil, keyEquivalent: "")
+        item.isEnabled = OtherApps.slowOn
+        let submenu = NSMenu()
+        let note = NSMenuItem(title: "Apps an agent uses without starting them. Where an agent runs, and what it starts, are kept anyway",
+                              action: nil, keyEquivalent: "")
+        note.isEnabled = false
+        submenu.addItem(note)
+        for name in OtherApps.keep {
+            let app = NSMenuItem(title: name, action: #selector(dropKeepApp(_:)), keyEquivalent: "")
+            app.target = self
+            app.state = .on
+            app.representedObject = name
+            app.toolTip = "Click to let \(name) be slowed"
+            submenu.addItem(app)
+        }
+        submenu.addItem(.separator())
+        let add = NSMenuItem(title: "Add App…", action: #selector(addKeepApp), keyEquivalent: "")
+        add.target = self
+        submenu.addItem(add)
+        let reset = NSMenuItem(title: "Reset to Defaults", action: #selector(resetKeepApps), keyEquivalent: "")
+        reset.target = self
+        submenu.addItem(reset)
+        item.submenu = submenu
+        return item
+    }
+
+    @objc func toggleSlowApps() {
+        let on = !OtherApps.slowOn
+        UserDefaults.standard.set(on, forKey: "SlowOtherApps")
+        appendLog("apps: slow others \(on ? "on" : "off")")
+    }
+
+    @objc func dropKeepApp(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
+        OtherApps.keep = OtherApps.keep.filter { $0 != name }
+        appendLog("apps: always keep: \(OtherApps.keep.joined(separator: ","))")
+    }
+
+    @objc func addKeepApp() {
+        NSApp.activate(ignoringOtherApps: true)
+        let panel = NSOpenPanel()
+        panel.title = "Keep at Full Speed"
+        panel.message = "Choose apps your agents use, so they're never slowed with the lid closed"
+        panel.prompt = "Keep"
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.allowsMultipleSelection = true
+        guard panel.runModal() == .OK else { return }
+        var keep = OtherApps.keep
+        for url in panel.urls {
+            let name = url.deletingPathExtension().lastPathComponent
+            if !keep.contains(name) { keep.append(name) }
+        }
+        OtherApps.keep = keep
+        appendLog("apps: always keep: \(keep.joined(separator: ","))")
+    }
+
+    @objc func resetKeepApps() {
+        UserDefaults.standard.removeObject(forKey: "KeepApps")
+        appendLog("apps: always keep: defaults")
+    }
+
+    @objc func toggleAutoKeep() {
+        let on = !AutoKeep.enabled
+        UserDefaults.standard.set(on, forKey: "AutoKeep")
+        appendLog("auto keep: \(on ? "on" : "off")")
+        let how = hotkey.map { "\($0.symbols) or the cup" } ?? "the cup"
+        notify(on ? "Keep running whenever an agent starts" : "Keep running only when you ask",
+               on ? "An agent that starts working switches keep on, and it switches off once they've finished. \(how.prefix(1).uppercased() + how.dropFirst()) pauses it."
+                  : "Switch keep on with \(how) when you want agents to run with the lid closed.")
+        refresh()
     }
 
     @objc func openLog() {
