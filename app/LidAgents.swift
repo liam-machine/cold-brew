@@ -148,7 +148,7 @@ enum Agents {
 // MARK: - Updates (notify only; installing is always the user's click)
 
 enum Updater {
-    static let repo = "liam-machine/lid-agents"
+    static let repo = "liam-machine/cold-brew"
     static let logPath = stateDir + "/update.log"
 
     static var current: String {

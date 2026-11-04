@@ -975,7 +975,7 @@ cmd_install() {
 }
 
 cmd_update() {
-  local repo="liam-machine/lid-agents" latest
+  local repo="liam-machine/cold-brew" latest
   latest="$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" \
     | sed -n 's/.*"tag_name": *"v\{0,1\}\([0-9][0-9.]*\)".*/\1/p' | head -1)"
   if [ -z "$latest" ]; then echo "agents: couldn't reach GitHub to check for updates" >&2; exit 1; fi
