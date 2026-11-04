@@ -273,6 +273,16 @@ check "apps: agent hosts, what they started, the list and busy apps kept; the re
   "$(sort "$ROOT/tests/apps/expected")" "$(plan_of "Simulator,Google Chrome")"
 check "apps: with an empty list, Chrome is slowed too" "slow 910010 slow 910011 slow 910020 slow 910021" \
   "$(plan_of "" | awk -F'\t' '$1 == "slow" { printf "%s%s %s", (n++ ? " " : ""), $1, $2 }')"
+# Spotify (910040) sits at priority 4: in the background already, so it's left alone. Once this
+# script slows an app its processes sit at 4 too; they must stay slowed, not be put back a minute later.
+mkdir -p "$TMP/apps/.cache/lid-agents"
+printf '910040\t/Applications/Spotify.app/Contents/MacOS/Spotify\n' > "$TMP/apps/.cache/lid-agents/slowed"
+check "apps: an app this script slowed stays slowed" "910040" \
+  "$(plan_of "Simulator,Google Chrome" | awk -F'\t' '$2 == 910040 { print $2 }')"
+printf '910040\t/Applications/Other.app/Contents/MacOS/Other\n' > "$TMP/apps/.cache/lid-agents/slowed"
+check "apps: a reused pid running something else is still left alone" "" \
+  "$(plan_of "Simulator,Google Chrome" | awk -F'\t' '$2 == 910040 { print $2 }')"
+rm -f "$TMP/apps/.cache/lid-agents/slowed"
 names_of() {
   export HOME="$TMP/apps" AGENTS_SOURCED=1
   # shellcheck source=../bin/agents
