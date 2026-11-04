@@ -98,13 +98,13 @@ jobs:
 
       - name: Smoke test
         run: |
-          app="build/Lid Agents.app"
+          app="build/Cold Brew.app"
           if [ -n "${{ steps.signing.outputs.identity }}" ]; then
             spctl -a -vv "$app"                                     # Gatekeeper: Notarized Developer ID
-            spctl -a -vv -t open --context context:primary-signature dist/LidAgents.dmg
-            xcrun stapler validate dist/LidAgents.dmg
+            spctl -a -vv -t open --context context:primary-signature dist/ColdBrew.dmg
+            xcrun stapler validate dist/ColdBrew.dmg
           fi
-          lipo -info "$app/Contents/MacOS/LidAgents"
+          lipo -info "$app/Contents/MacOS/ColdBrew"
           "$app/Contents/Resources/agents" version
           "$app/Contents/Resources/agents" state
           "$app/Contents/Resources/agents" busy
@@ -128,5 +128,7 @@ jobs:
           if git rev-parse -q --verify "refs/tags/$tag" >/dev/null && [[ "$GITHUB_REF" != refs/tags/* ]]; then
             echo "$tag already exists; nothing to release"; exit 0
           fi
-          gh release create "$tag" dist/LidAgents.dmg dist/lid-agents.tar.gz install.sh \
-            --target "$GITHUB_SHA" --title "Lid Agents $tag" "$@"
+          # LidAgents.dmg: the same disk image under the name before 1.5.0, so old download links work
+          cp dist/ColdBrew.dmg dist/LidAgents.dmg
+          gh release create "$tag" dist/ColdBrew.dmg dist/LidAgents.dmg dist/lid-agents.tar.gz install.sh \
+            --target "$GITHUB_SHA" --title "Cold Brew $tag" "$@"

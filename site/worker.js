@@ -1,7 +1,7 @@
-// lid-agents.liam-is-an.ai: landing page plus stable download links for Lid Agents.
+// lid-agents.liam-is-an.ai: landing page plus stable download links for Cold Brew.
 //
 //   /                 landing page (latest version read from GitHub, cached 10 min)
-//   /download, /dmg   → latest notarized LidAgents.dmg
+//   /download, /dmg   → latest notarized ColdBrew.dmg
 //   /install.sh       → latest installer, for `curl -fsSL …/install.sh | bash`
 //   /github           → the repo
 //
@@ -12,9 +12,10 @@ import icon from "./icon.png";
 const REPO = "liam-machine/lid-agents";
 const LATEST = `https://github.com/${REPO}/releases/latest/download`;
 const REDIRECTS = {
-  "/download": `${LATEST}/LidAgents.dmg`,
-  "/dmg": `${LATEST}/LidAgents.dmg`,
-  "/LidAgents.dmg": `${LATEST}/LidAgents.dmg`,
+  "/download": `${LATEST}/ColdBrew.dmg`,
+  "/dmg": `${LATEST}/ColdBrew.dmg`,
+  "/ColdBrew.dmg": `${LATEST}/ColdBrew.dmg`,
+  "/LidAgents.dmg": `${LATEST}/ColdBrew.dmg`,
   "/install.sh": `${LATEST}/install.sh`,
   "/install": `${LATEST}/install.sh`,
   "/github": `https://github.com/${REPO}`,
@@ -69,9 +70,9 @@ function page(version, origin) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lid Agents</title>
+<title>Cold Brew</title>
 <meta name="description" content="Close your MacBook's lid and let your AI agents keep working. A free menu bar app for macOS.">
-<meta property="og:title" content="Lid Agents">
+<meta property="og:title" content="Cold Brew">
 <meta property="og:description" content="Close your MacBook's lid and let your AI agents keep working.">
 <meta property="og:image" content="${origin}/icon.png">
 <link rel="icon" href="/icon.png">
@@ -131,7 +132,7 @@ function page(version, origin) {
 <main>
   <div class="hero">
     <img src="/icon.png" alt="" width="112" height="112">
-    <h1>Lid Agents</h1>
+    <h1>Cold Brew</h1>
     <p class="tagline">Close your MacBook's lid and let your AI agents keep working.</p>
     <a class="button" href="/download">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1zM5 19h14a1 1 0 1 1 0 2H5a1 1 0 1 1 0-2z"/></svg>
@@ -148,7 +149,7 @@ function page(version, origin) {
   <section>
     <h2>How it works</h2>
     <ol class="steps">
-      <li><b>Click the cup in your menu bar</b><span>or press <kbd>⌃0</kbd>. It fills in and shows how many agents are busy.</span></li>
+      <li><b>An agent starts working</b><span>The cup in your menu bar fills by itself and shows how many agents are busy. Press <kbd>⌃0</kbd> to let the Mac sleep this time.</span></li>
       <li><b>Close the lid</b><span>The screen goes off, and Claude Code, Codex and the rest keep running.</span></li>
       <li><b>Your agents finish</b><span>A few minutes later the cup empties and the closed Mac goes to sleep.</span></li>
     </ol>
