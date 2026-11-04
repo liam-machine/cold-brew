@@ -4,11 +4,13 @@
 
 [![Download for macOS](https://img.shields.io/github/v/release/liam-machine/cold-brew?label=Download%20for%20macOS&logo=apple&style=for-the-badge&color=8a5a2b)](https://github.com/liam-machine/cold-brew/releases/latest/download/ColdBrew.dmg)
 
-Website: **[lid-agents.liam-is-an.ai](https://lid-agents.liam-is-an.ai)**
+Website: **[cold-brew.liam-is-an.ai](https://cold-brew.liam-is-an.ai)**
 
 Claude Code, Codex and other terminal agents stop the moment you close the lid, because macOS sleeps. Cold Brew adds a coffee cup to your menu bar. The moment an agent starts working, the cup fills: closing the lid then turns the screen off but keeps the Mac awake **while an agent is busy**. When they've all finished, it switches itself back off and puts the closed Mac to sleep. Press <kbd>⌃0</kbd> (or click the cup) to switch it off for the agents running now, or [turn the automatic part off](#settings) and fill the cup only when you ask.
 
 No external display, no keyboard or mouse plugged in, no power adapter required.
+
+**Why "Cold Brew"?** It keeps things cool. With the lid closed, the apps your agents aren't using drop to the lowest CPU and disk priority, so they draw less power while the agents work, and they're back at full speed when the lid opens. What an agent needs stays at full strength: where it runs, what it started (a simulator, a browser it drives) and the apps you list ([more](#everything-the-agent-uses-keeps-running-everything-else-is-slowed)). Browser agents work in the dark too: Claude in Chrome, Playwright and other tools that drive a browser keep seeing and clicking pages with the display off and the Mac locked.
 
 ## Install
 

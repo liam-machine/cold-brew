@@ -1,4 +1,5 @@
-// lid-agents.liam-is-an.ai: landing page plus stable download links for Cold Brew.
+// cold-brew.liam-is-an.ai: landing page plus stable download links for Cold Brew.
+// lid-agents.liam-is-an.ai, its address before 1.5, redirects here (same path).
 //
 //   /                 landing page (latest version read from GitHub, cached 10 min)
 //   /download, /dmg   → latest notarized ColdBrew.dmg
@@ -10,6 +11,7 @@
 import icon from "./icon.png";
 
 const REPO = "liam-machine/cold-brew";
+const HOST = "cold-brew.liam-is-an.ai";
 const LATEST = `https://github.com/${REPO}/releases/latest/download`;
 const REDIRECTS = {
   "/download": `${LATEST}/ColdBrew.dmg`,
@@ -25,6 +27,9 @@ const REDIRECTS = {
 export default {
   async fetch(request) {
     const url = new URL(request.url);
+    if (url.hostname !== HOST && url.hostname.endsWith(".liam-is-an.ai")) {
+      return Response.redirect(`https://${HOST}${url.pathname}${url.search}`, 301);
+    }
     const path = url.pathname.replace(/\/+$/, "") || "/";
 
     if (REDIRECTS[path]) return Response.redirect(REDIRECTS[path], 302);
@@ -156,10 +161,20 @@ function page(version, origin) {
   </section>
 
   <section>
+    <h2>Why Cold Brew</h2>
+    <ul class="facts">
+      <li><b>It keeps things cool.</b> With the lid closed, the apps your agents aren't using (chat apps, music, the editor you left open) drop to the lowest CPU and disk priority, so they draw less power while the agents work. They're back at full speed the moment you open the lid.</li>
+      <li><b>What the agent needs stays at full strength:</b> the terminal or editor it runs in, anything it started (a simulator, a dev server, a browser it drives), apps on a call or playing audio, and any app you list.</li>
+      <li><b>Browser agents work in the dark.</b> Claude in Chrome, Playwright and other tools that drive a browser keep seeing and clicking pages with the display off and the Mac locked.</li>
+    </ul>
+  </section>
+
+  <section>
     <h2>Good to know</h2>
     <ul class="facts">
       <li>It only stays awake while an agent is actually working, never because a session is open.</li>
       <li>It turns itself off when your agents finish, or at 15% battery.</li>
+      <li>Closing the lid sleeps the screen and locks the Mac, even if an app is holding the screen on.</li>
       <li>It asks for your password once, to allow a single command: <code>pmset -a disablesleep</code>.</li>
       <li>Don't put the Mac in a bag while the cup is full. It can't get rid of heat with the lid shut.</li>
     </ul>
