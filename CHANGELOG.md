@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.2
+
+- **The installer's last message matches how keep works now.** It said to click the cup to keep agents running; keep has switched on by itself since 1.4.0. It now says so, and how to go back to switching it on yourself (`agents auto off`). With auto keep off, it says to click the cup, as before.
+
 ## 1.4.1
 
 - **Slowed apps stay slowed while the lid is closed.** They were put back at full speed after a minute, then slowed again a minute later, over and over: once slowed, an app looked as if something else had already put it in the background, so it was handed back.
