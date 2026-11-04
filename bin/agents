@@ -145,10 +145,13 @@ external_display() {
 
 # Closing the lid only turns the backlight off. macOS sleeps the display, and locks the Mac, on its own
 # timer, which any app holding a display assertion stops (Chrome capturing a tab, a video), so a
-# closed Mac could sit with its display on and unlocked for days. Sleep it now, unless a monitor is in use.
+# closed Mac could sit with its display on and unlocked for days. Sleep it now, unless a monitor is in
+# use: then it returns 1, and the guard asks again a minute later (the display list can still show
+# the lid open in the second after it closes).
 sleep_display() {
-  if external_display; then log "lid closed with a monitor plugged in: display left on"; return 0; fi
+  external_display && return 1
   pmset displaysleepnow >/dev/null 2>&1 && log "lid closed: display asleep, Mac locked"
+  return 0
 }
 
 guard_running() { [ -f "$GUARD_PID" ] && kill -0 "$(cat "$GUARD_PID")" 2>/dev/null; }
@@ -381,7 +384,8 @@ keep_apps() {
 }
 
 # The user's own processes and their scheduling priority, "pid pri" (4 or less: already in the
-# background, so it's left alone and never "put back")
+# background, so it's left alone and never "put back", unless this script put it there: those are
+# in $SLOWED, and stay slowed)
 read_mine() {
   if [ -n "${AGENTS_TEST_FIXTURE:-}" ]; then
     if [ -f "$AGENTS_TEST_FIXTURE/pri" ]; then cat "$AGENTS_TEST_FIXTURE/pri"; else awk '{ print $1, 31 }' "$AGENTS_TEST_FIXTURE/procs"; fi
@@ -396,6 +400,7 @@ apps_plan() {
     proc_table
     agent_report | awk '{ print "agent", $1 }'
     read_mine | awk '{ print "mine", $1, $2 }'
+    awk -F'\t' 'NF >= 2 { print "ours", $1, $2 }' "$SLOWED" 2>/dev/null
     read_assertions | sed -nE 's/^[[:space:]]*pid ([0-9]+)\(.*/assert \1/p; s/^[[:space:]]*Created for PID: ([0-9]+).*/assert \1/p'
   } |
   awk -v names="$AGENT_NAMES" -v keep="$(keep_apps),Lid Agents" -v home="$HOME" '
@@ -415,6 +420,7 @@ apps_plan() {
     $1 == "agent" { agent[$2] = 1; next }
     $1 == "mine" { mine[$2] = 1; pri[$2] = $3; next }
     $1 == "assert" { held[$2] = 1; next }
+    $1 == "ours" { c = $3; for (i = 4; i <= NF; i++) c = c " " $i; ours[$2] = c; next }
     {
       pid = $1; pp[pid] = $2; c = $5; for (i = 6; i <= NF; i++) c = c " " $i; cmd[pid] = c
       if (pid != $2) kids[$2] = kids[$2] " " pid
@@ -437,7 +443,8 @@ apps_plan() {
         if (b == "" || (index(c, "/Applications/") != 1 && index(c, home "/Applications/") != 1)) continue
         if (b in why) continue
         if (listed(c) != "") { if (listed(c) != "Lid Agents") why[b] = "list"; continue }
-        if (!(p in mine) || pri[p] + 0 <= 4) continue
+        if (!(p in mine)) continue
+        if (pri[p] + 0 <= 4 && ours[p] != c) continue        # in the background already, not by us
         print "slow\t" p "\t" c
       }
       for (b in why) if (index(b, "/Applications/") == 1 || index(b, home "/Applications/") == 1) print "keep\t" app(b) "\t" why[b]
@@ -500,13 +507,20 @@ start_guard() {
     waited=0
     tick=0
     lid=""
+    dark=1
     # Every 5 seconds: the lid, so other apps are back to full speed as soon as it opens.
     # Every minute (12 ticks): everything else, and any app that started since.
     while sleep 5; do
       keeping || { apps_sync open; exit 0; }       # paused elsewhere
       tick=$((tick + 1))
       now="$(lid_closed && echo closed || echo open)"
-      if [ "$now" = closed ] && [ "$lid" != closed ]; then sleep_display; fi
+      if [ "$now" = closed ]; then
+        [ "$lid" = closed ] || dark=0                      # just closed
+        if [ "$dark" = 0 ] && { [ "$lid" != closed ] || [ $((tick % 12)) = 0 ]; }; then
+          if sleep_display; then dark=1
+          elif [ "$lid" != closed ]; then log "lid closed with a monitor plugged in: display left on"; fi
+        fi
+      fi
       if [ "$now" != "$lid" ] || [ $((tick % 12)) = 0 ]; then apps_sync "$now"; lid="$now"; fi
       [ $((tick % 12)) = 0 ] || continue
       reason=""

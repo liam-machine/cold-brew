@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.1
+
+- **Slowed apps stay slowed while the lid is closed.** They were put back at full speed after a minute, then slowed again a minute later, over and over: once slowed, an app looked as if something else had already put it in the background, so it was handed back.
+- **The screen still sleeps if the monitor check is wrong when the lid closes.** In the second after the lid closes, the display list could report a monitor that wasn't there and leave the screen on. It's checked again a minute later.
+
 ## 1.4.0
 
 - **Keep switches on by itself when an agent starts.** You no longer have to remember the hotkey before closing the lid: as soon as an agent starts working, the cup fills, and it empties once they've all finished, as before. Routine switches are quiet: you're told once the first time, and after that the cup shows it. The battery floor and an unanswered prompt still notify.
