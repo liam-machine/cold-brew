@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds "build/Lid Agents.app" (universal), dist/lid-agents.tar.gz and dist/LidAgents.dmg.
+# Builds "build/Cold Brew.app" (universal), dist/lid-agents.tar.gz and dist/ColdBrew.dmg.
 #   scripts/build.sh [version]     version defaults to the VERSION file
 #
 # Signing: with SIGN_IDENTITY (e.g. "Developer ID Application: Name (TEAMID)") the app and
@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.."
 
 VERSION="${1:-$(cat VERSION)}"
 VERSION="${VERSION#v}"
-APP="build/Lid Agents.app"
+APP="build/Cold Brew.app"
 SIGN_IDENTITY="${SIGN_IDENTITY:-}"
 
 rm -rf build dist
@@ -20,9 +20,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" build/obj build/AppIcon
 
 echo "==> Compiling (arm64 + x86_64)"
 for arch in arm64 x86_64; do
-  swiftc -O -swift-version 5 -target "$arch-apple-macos13.0" -o "build/obj/LidAgents-$arch" app/LidAgents.swift
+  swiftc -O -swift-version 5 -target "$arch-apple-macos13.0" -o "build/obj/ColdBrew-$arch" app/LidAgents.swift
 done
-lipo -create -output "$APP/Contents/MacOS/LidAgents" build/obj/LidAgents-arm64 build/obj/LidAgents-x86_64
+lipo -create -output "$APP/Contents/MacOS/ColdBrew" build/obj/ColdBrew-arm64 build/obj/ColdBrew-x86_64
 
 echo "==> Bundling $VERSION"
 sed "s/__VERSION__/$VERSION/g" app/Info.plist > "$APP/Contents/Info.plist"
@@ -62,14 +62,14 @@ codesign --verify --strict "$APP"
 if [ -n "$SIGN_IDENTITY" ]; then notarize "$APP"; fi
 
 echo "==> Packaging"
-COPYFILE_DISABLE=1 tar --no-mac-metadata -C build -czf dist/lid-agents.tar.gz "Lid Agents.app"
+COPYFILE_DISABLE=1 tar --no-mac-metadata -C build -czf dist/lid-agents.tar.gz "Cold Brew.app"
 
-ditto "$APP" "build/dmg/Lid Agents.app"
+ditto "$APP" "build/dmg/Cold Brew.app"
 ln -s /Applications build/dmg/Applications
-hdiutil create -quiet -volname "Lid Agents" -srcfolder build/dmg -ov -format UDZO dist/LidAgents.dmg
+hdiutil create -quiet -volname "Cold Brew" -srcfolder build/dmg -ov -format UDZO dist/ColdBrew.dmg
 if [ -n "$SIGN_IDENTITY" ]; then
-  codesign --force --timestamp --sign "$SIGN_IDENTITY" dist/LidAgents.dmg
-  notarize dist/LidAgents.dmg
+  codesign --force --timestamp --sign "$SIGN_IDENTITY" dist/ColdBrew.dmg
+  notarize dist/ColdBrew.dmg
 fi
 
 for f in dist/*; do echo "==> $f ($(du -h "$f" | cut -f1))"; done

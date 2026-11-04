@@ -1,4 +1,4 @@
-# Download site for Lid Agents. Deploy with: cd site && wrangler deploy
+# Download site for Cold Brew. Deploy with: cd site && wrangler deploy
 name = "lid-agents-site"
 main = "worker.js"
 compatibility_date = "2025-09-01"

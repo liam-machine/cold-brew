@@ -1,4 +1,4 @@
-// Lid Agents — menu bar front end for the `agents` script bundled in Contents/Resources.
+// Cold Brew — menu bar front end for the `agents` script bundled in Contents/Resources.
 //
 // All behaviour (the pmset flag, busy-agent detection, the auto-pause guard) lives in that
 // script so the terminal and the menu bar can never disagree. This app only shows its state,
@@ -45,7 +45,7 @@ struct AgentRow {
     var pid = 0
     var name = ""
     var waiting = false
-    var onPhone: Bool?              // a Claude session on Remote Control (nil: not one Lid Agents can tell)
+    var onPhone: Bool?              // a Claude session on Remote Control (nil: not one Cold Brew can tell)
     var folder = ""
 }
 
@@ -319,7 +319,7 @@ final class HotkeyRecorder: NSObject, NSWindowDelegate {
 
     init(current: Hotkey?) {
         super.init()
-        window.title = "Lid Agents Hotkey"
+        window.title = "Cold Brew Hotkey"
         window.delegate = self
         window.isReleasedWhenClosed = false
         window.level = .floating
@@ -401,6 +401,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if moveToApplicationsIfNeeded() { return }
+        retireOldName()
         try? FileManager.default.createDirectory(atPath: stateDir, withIntermediateDirectories: true)
         statusItem = makeStatusItem()
         menu.delegate = self
@@ -435,9 +436,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             defaults.set(Updater.current, forKey: "LastRunVersion")
             if !defaults.bool(forKey: "Welcomed") {
                 defaults.set(true, forKey: "Welcomed")
-                self?.notify("Lid Agents is ready", self?.howToUse() ?? "")
+                self?.notify("Cold Brew is ready", self?.howToUse() ?? "")
+            } else if let lastRun, Updater.isNewer("1.5.0", than: lastRun) {
+                self?.notify("Lid Agents is now Cold Brew",
+                             "Same app and settings, new name. It's updated to \(Updater.current).")
             } else if let lastRun, Updater.isNewer(Updater.current, than: lastRun) {
-                self?.notify("Lid Agents updated to \(Updater.current)",
+                self?.notify("Cold Brew updated to \(Updater.current)",
                              "See what's new at github.com/\(Updater.repo)/releases.")
             }
         }
@@ -463,7 +467,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         guard here.hasPrefix("/Volumes/") else { return false }
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText = "Move Lid Agents to Applications?"
+        alert.messageText = "Move Cold Brew to Applications?"
         alert.informativeText = "It's running from the disk image, which goes away when you eject it."
         alert.addButton(withTitle: "Move to Applications")
         alert.addButton(withTitle: "Quit")
@@ -479,7 +483,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             try FileManager.default.copyItem(atPath: here, toPath: target)
         } catch {
             let failed = NSAlert()
-            failed.messageText = "Couldn't copy Lid Agents"
+            failed.messageText = "Couldn't copy Cold Brew"
             failed.informativeText = "Drag it into Applications from the disk image instead.\n\n\(error.localizedDescription)"
             failed.runModal()
             NSApp.terminate(nil)
@@ -491,6 +495,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             DispatchQueue.main.async { NSApp.terminate(nil) }
         }
         return true
+    }
+
+    /// Cold Brew was called Lid Agents before 1.5.0. A copy under the old name (from a DMG install,
+    /// which never runs install.sh) is the same app: remove it, and move Open at Login over to this one.
+    func retireOldName() {
+        let fm = FileManager.default
+        let here = Bundle.main.bundlePath
+        guard !here.hasPrefix("/Volumes/") else { return }
+        var removed = false
+        for dir in ["/Applications", NSHomeDirectory() + "/Applications"] {
+            for old in ["Lid Agents.app", "LidAgents.app"] {
+                let path = dir + "/" + old
+                guard path != here, fm.fileExists(atPath: path) else { continue }
+                NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+                    .filter { $0.processIdentifier != getpid() && $0.bundleURL?.path == path }
+                    .forEach { $0.terminate() }
+                if (try? fm.removeItem(atPath: path)) != nil {
+                    removed = true
+                    appendLog("removed \(path) (Cold Brew's old name)")
+                }
+            }
+        }
+        // Open at Login pointing at the old copy: point it here
+        if let data = fm.contents(atPath: launchAgentPath),
+           let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+           let args = plist["ProgramArguments"] as? [String], let target = args.last, target != here,
+           removed || !fm.fileExists(atPath: target) {
+            setOpenAtLogin(true)
+        }
     }
 
     /// Links the `agents` command, turns on Open at Login, and (once, with the user's OK)
@@ -510,9 +543,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText = "Finish setting up Lid Agents"
+        alert.messageText = "Finish setting up Cold Brew"
         alert.informativeText = """
-            To keep agents running with the lid closed, Lid Agents needs to run one command \
+            To keep agents running with the lid closed, Cold Brew needs to run one command \
             as administrator: pmset -a disablesleep (on or off). Nothing else.
 
             macOS will ask for your password once.
@@ -529,7 +562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             DispatchQueue.main.async {
                 self.apply(next)
                 if next.setupOK {
-                    self.notify("Lid Agents is set up", self.howToUse())
+                    self.notify("Cold Brew is set up", self.howToUse())
                     self.offerRemoteControlIfNeeded()
                 } else {
                     let message = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -595,14 +628,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                 }
                 guard Updater.isNewer(latest, than: Updater.current) else {
                     self.availableUpdate = nil
-                    if manual { self.notify("Lid Agents is up to date", "You have the latest version, \(Updater.current).") }
+                    if manual { self.notify("Cold Brew is up to date", "You have the latest version, \(Updater.current).") }
                     return
                 }
                 self.availableUpdate = latest
                 // Tell the user once per version; the menu item stays until they update
                 if manual || UserDefaults.standard.string(forKey: "NotifiedUpdate") != latest {
                     UserDefaults.standard.set(latest, forKey: "NotifiedUpdate")
-                    self.notify("Lid Agents \(latest) is available",
+                    self.notify("Cold Brew \(latest) is available",
                                 "Click the cup in the menu bar, then Update to \(latest).")
                 }
             }
@@ -739,12 +772,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     @objc func installUpdate() {
         guard let version = availableUpdate, !updating else { return }
         updating = true
-        notify("Updating Lid Agents to \(version)…", "It will reopen by itself in a few seconds.")
+        notify("Updating Cold Brew to \(version)…", "It will reopen by itself in a few seconds.")
         Updater.install(version)
         // On success the installer quits this app; still being here means it failed
         DispatchQueue.main.asyncAfter(deadline: .now() + 90) { [weak self] in
             self?.updating = false
-            self?.notify("Lid Agents couldn't update", "Details are in ~/.cache/lid-agents/update.log.")
+            self?.notify("Cold Brew couldn't update", "Details are in ~/.cache/lid-agents/update.log.")
         }
     }
 
@@ -845,7 +878,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     // nothing to do any more (paused from a terminal, or the agent already finished)
                 } else if result.status != 0 {
                     let message = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
-                    self.notify("Lid Agents couldn't change the setting", message.isEmpty ? "Run `agents install` in a terminal." : message)
+                    self.notify("Cold Brew couldn't change the setting", message.isEmpty ? "Run `agents install` in a terminal." : message)
                 } else if auto {
                     // Happens every time you set an agent going, so it's explained once, then the cup says it
                     if !UserDefaults.standard.bool(forKey: "AutoKeepExplained") {
@@ -981,8 +1014,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
         menu.addItem(settingsItem(remoteOn: snap.remoteOn))
         menu.addItem(.separator())
-        info("Lid Agents \(Updater.current)")
-        menu.addItem(withTitle: "Quit Lid Agents", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        info("Cold Brew \(Updater.current)")
+        menu.addItem(withTitle: "Quit Cold Brew", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }
 
     /// "claude  lid-agents      working": click to go to the agent's terminal or editor (`agents focus`).
@@ -1019,7 +1052,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     @objc func focusAgent(_ sender: NSMenuItem) {
         guard let pid = sender.representedObject as? Int else { return }
         DispatchQueue.global(qos: .userInitiated).async {
-            // The first time for Terminal or iTerm2, macOS asks to let Lid Agents select the tab
+            // The first time for Terminal or iTerm2, macOS asks to let Cold Brew select the tab
             let result = Agents.run(["focus", String(pid)])
             guard result.status != 0 else { return }
             let message = result.output.trimmingCharacters(in: .whitespacesAndNewlines)

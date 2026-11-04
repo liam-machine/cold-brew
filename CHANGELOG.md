@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.0
+
+- **Lid Agents is now Cold Brew.** Same app, same cup, same settings, new name: the menu bar, notifications, Spotlight, the installer and `agents` all say Cold Brew. Updating replaces "Lid Agents.app" with "Cold Brew.app" in the same folder, a copy left in the other Applications folder is removed, and Open at Login moves over. The `agents` command, its settings and `~/.cache/lid-agents` are unchanged.
+- The download is now `ColdBrew.dmg`. Links to `LidAgents.dmg` still work.
+
 ## 1.4.2
 
 - **The installer's last message matches how keep works now.** It said to click the cup to keep agents running; keep has switched on by itself since 1.4.0. It now says so, and how to go back to switching it on yourself (`agents auto off`). With auto keep off, it says to click the cup, as before.

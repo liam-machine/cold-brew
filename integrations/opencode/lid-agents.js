@@ -1,13 +1,13 @@
-// Lid Agents plugin for OpenCode (installed by `agents integrate`).
+// Cold Brew plugin for OpenCode (installed by `agents integrate`).
 //
-// Lid Agents counts an agent as busy when it has a caffeinate child, which is what Claude Code
+// Cold Brew counts an agent as busy when it has a caffeinate child, which is what Claude Code
 // does while it works. OpenCode has no such signal, so this plugin holds
 // `caffeinate -i -t 300 -w <opencode pid>` while any session is busy (or retrying), renews it
 // every 4 minutes, and stops it when they are all idle. Like Claude Code's, it expires on its
 // own: `-t` if the renewals stop, `-w` if OpenCode exits without telling us.
 //
 // While every busy session is waiting on a permission prompt or a question, it also writes
-// ~/.cache/lid-agents/waiting/<opencode pid>, so Lid Agents counts it as "needs input" rather
+// ~/.cache/lid-agents/waiting/<opencode pid>, so Cold Brew counts it as "needs input" rather
 // than busy. Waiting is tracked per request (two prompts in one session need two answers), and
 // a session that still has work in flight keeps the whole process busy.
 //

@@ -22,9 +22,9 @@
 #                                 them from your phone; lists busy sessions that aren't connected
 #   agents hotkey [keys|none]     show or set the hotkey, e.g. agents hotkey ctrl+opt+cmd+l
 #   agents install                one-time: passwordless sudo for exactly two pmset commands
-#   agents integrate              let Lid Agents see when Codex and OpenCode are busy, and when
+#   agents integrate              let Cold Brew see when Codex and OpenCode are busy, and when
 #                                 Claude Code, Codex or OpenCode is stuck waiting for you
-#   agents uninstall              remove everything Lid Agents installed
+#   agents uninstall              remove everything Cold Brew installed
 #   agents update                 install the latest release
 #   agents version
 #
@@ -34,7 +34,7 @@
 # a cap you chose expires or the battery reaches the floor, and if the lid is shut then, sleeps the Mac.
 #
 # "Busy" = an agent CLI that has a caffeinate child (Claude Code holds `caffeinate -i -t 300`
-# only while working; so does OpenCode with the Lid Agents plugin), holds a sleep assertion
+# only while working; so does OpenCode with the Cold Brew plugin), holds a sleep assertion
 # itself (Codex with prevent_idle_sleep), or is using >= AGENTS_CPU % CPU. An open-but-idle
 # session is not busy. `agents integrate` sets up the Codex and OpenCode parts.
 #
@@ -251,7 +251,7 @@ waiting_pids() {
 # Agents installed through npm, bun or pip run as node/bun/python, so for those the script name in
 # the command line counts instead (`node /opt/homebrew/bin/gemini` is gemini). None of this
 # depends on which terminal or app started the agent. An agent is busy when:
-#   - it has a caffeinate child: Claude Code while working, OpenCode with the Lid Agents plugin
+#   - it has a caffeinate child: Claude Code while working, OpenCode with the Cold Brew plugin
 #   - it holds a sleep assertion itself: Codex with prevent_idle_sleep on
 #   - it and its child processes use >= AGENTS_CPU % CPU together: anything else, including
 #     an agent whose work runs in children (a long test suite, `codex exec`)
@@ -403,7 +403,7 @@ apps_plan() {
     awk -F'\t' 'NF >= 2 { print "ours", $1, $2 }' "$SLOWED" 2>/dev/null
     read_assertions | sed -nE 's/^[[:space:]]*pid ([0-9]+)\(.*/assert \1/p; s/^[[:space:]]*Created for PID: ([0-9]+).*/assert \1/p'
   } |
-  awk -v names="$AGENT_NAMES" -v keep="$(keep_apps),Lid Agents" -v home="$HOME" '
+  awk -v names="$AGENT_NAMES" -v keep="$(keep_apps),Cold Brew" -v home="$HOME" '
     function bundle(c,    i) { i = index(c, ".app/"); return i ? substr(c, 1, i + 3) : "" }
     function app(b) { sub(/\.app$/, "", b); sub(/.*\//, "", b); return b }
     function listed(c,    i) { for (i = 1; i <= nk; i++) if (index(c, "/" k[i] ".app/")) return k[i]; return "" }
@@ -442,7 +442,7 @@ apps_plan() {
         c = cmd[p]; b = bundle(c)
         if (b == "" || (index(c, "/Applications/") != 1 && index(c, home "/Applications/") != 1)) continue
         if (b in why) continue
-        if (listed(c) != "") { if (listed(c) != "Lid Agents") why[b] = "list"; continue }
+        if (listed(c) != "") { if (listed(c) != "Cold Brew") why[b] = "list"; continue }
         if (!(p in mine)) continue
         if (pri[p] + 0 <= 4 && ours[p] != c) continue        # in the background already, not by us
         print "slow\t" p "\t" c
@@ -659,7 +659,7 @@ cmd_status() {
     off)  echo "  auto:    off: keep only when you ask (agents auto on)" ;;
     held) echo "  auto:    off for the agents running now; the next one to start after they finish switches keep on" ;;
     *)    echo "  auto:    on: an agent that starts working switches keep on (agents auto off)"
-          pgrep -x LidAgents >/dev/null || echo "           …but the menu bar app does that, and it isn't running" ;;
+          pgrep -x ColdBrew >/dev/null || echo "           …but the menu bar app does that, and it isn't running" ;;
   esac
   if [ -s "$SLOWED" ]; then echo "  apps:    slowed while the lid is closed: $(apps_names < "$SLOWED") (agents apps)"
   elif slow_apps_on; then echo "  apps:    with the lid closed, apps no agent is using are slowed (agents apps)"
@@ -673,11 +673,11 @@ cmd_status() {
     fi
     echo "  remote:  $remote"
   fi
-  if ! pgrep -x LidAgents >/dev/null; then
-    echo "  app:     not running (open Lid Agents from Applications or Spotlight)"
+  if ! pgrep -x ColdBrew >/dev/null; then
+    echo "  app:     not running (open Cold Brew from Applications or Spotlight)"
   fi
   if [ "$(cat "$STATE_DIR/notifications" 2>/dev/null)" = "denied" ]; then
-    echo "  notices: off, so switching shows no banner. System Settings → Notifications → Lid Agents"
+    echo "  notices: off, so switching shows no banner. System Settings → Notifications → Cold Brew"
   fi
   if ! has_sudo_rule; then echo "  setup:   incomplete (agents install)"; fi
   if [ -f "$LOG" ]; then echo "  last:    $(tail -1 "$LOG")"; fi
@@ -807,7 +807,7 @@ focus_plan() {   # focus_plan <pid> [depth]
 }
 
 # Selects the Terminal or iTerm2 tab on /dev/<tty>. Prints ok when it did, or denied when macOS
-# hasn't let Lid Agents control that app (it asks the first time). Two scripts, because AppleScript
+# hasn't let Cold Brew control that app (it asks the first time). Two scripts, because AppleScript
 # looks an app up when it compiles a script, even in a branch that never runs.
 focus_tab_by_tty() {   # focus_tab_by_tty terminal|iterm <tty>
   local out
@@ -878,7 +878,7 @@ cmd_focus() {
       terminal|iterm)
         case "$(focus_tab_by_tty "$kind" "$a")" in
           ok) exact="its tab" ;;
-          denied) denied="System Settings → Privacy & Security → Automation → Lid Agents" ;;
+          denied) denied="System Settings → Privacy & Security → Automation → Cold Brew" ;;
         esac ;;
       wezterm) if "$a" cli activate-pane --pane-id "$b" >/dev/null 2>&1; then exact="its pane"; fi ;;
       kitty) if "$a" @ --to "$c" focus-window --match "id:$b" >/dev/null 2>&1; then exact="its window"; fi ;;
@@ -979,8 +979,8 @@ cmd_update() {
   latest="$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" \
     | sed -n 's/.*"tag_name": *"v\{0,1\}\([0-9][0-9.]*\)".*/\1/p' | head -1)"
   if [ -z "$latest" ]; then echo "agents: couldn't reach GitHub to check for updates" >&2; exit 1; fi
-  if [ "$latest" = "$AGENTS_VERSION" ]; then echo "Lid Agents is up to date ($latest)."; return 0; fi
-  echo "Updating Lid Agents $AGENTS_VERSION → $latest"
+  if [ "$latest" = "$AGENTS_VERSION" ]; then echo "Cold Brew is up to date ($latest)."; return 0; fi
+  echo "Updating Cold Brew $AGENTS_VERSION → $latest"
   curl -fsSL "https://github.com/$repo/releases/download/v$latest/install.sh" | LID_AGENTS_VERSION="$latest" bash
 }
 
@@ -1005,10 +1005,10 @@ cmd_hotkey() {
   defaults write "$BUNDLE_ID" Hotkey "$spec"
   # The stamp makes the app re-apply even an unchanged spec, so re-running retries one that failed
   defaults write "$BUNDLE_ID" HotkeyRequested -float "$(date +%s)"
-  if pgrep -x LidAgents >/dev/null; then
+  if pgrep -x ColdBrew >/dev/null; then
     echo "Hotkey: $spec. The menu bar app switches to it within a few seconds."
   else
-    echo "Hotkey: $spec. It applies when Lid Agents next opens."
+    echo "Hotkey: $spec. It applies when Cold Brew next opens."
   fi
 }
 
@@ -1371,7 +1371,7 @@ cmd_auto() {
     echo "Keep switches on by itself whenever an agent starts working, and off once they've finished."
     echo "  Pausing (the hotkey, the cup, agents pause) keeps it off until the agents running now have finished."
     echo "  keep only when you ask: agents auto off"
-    pgrep -x LidAgents >/dev/null || echo "  The menu bar app does the switching, and it isn't running: open Lid Agents."
+    pgrep -x ColdBrew >/dev/null || echo "  The menu bar app does the switching, and it isn't running: open Cold Brew."
   else
     echo "Keep switches on only when you ask (the hotkey, the cup, agents keep)."
     echo "  switch on by itself whenever an agent starts: agents auto on"
@@ -1448,14 +1448,14 @@ cmd_uninstall() {
   if keeping && has_sudo_rule; then cmd_pause >/dev/null; fi
   stop_guard
   apps_sync open
-  pkill -x LidAgents 2>/dev/null
+  pkill -x ColdBrew 2>/dev/null; pkill -x LidAgents 2>/dev/null   # its name before 1.5.0
   rm -f "$LAUNCH_AGENT"
   if [ -f "$SUDOERS_FILE" ]; then as_root "rm -f '$SUDOERS_FILE'" && echo "Removed $SUDOERS_FILE"; fi
   if [ -f "$OPENCODE_PLUGIN" ]; then rm -f "$OPENCODE_PLUGIN" && echo "Removed $OPENCODE_PLUGIN"; fi
   local f
   while IFS= read -r f; do
     if grep -qF "$HOOK_TAG" "$f" 2>/dev/null; then
-      edit_hooks_json "$f" remove && echo "Removed the Lid Agents hooks from $f"
+      edit_hooks_json "$f" remove && echo "Removed the Cold Brew hooks from $f"
     fi
   done < <(hook_files)
   if [ -L "$LINK" ]; then rm -f "$LINK"; fi
@@ -1465,7 +1465,7 @@ cmd_uninstall() {
     echo "Claude Code still connects new sessions to Remote Control. To stop: /config in Claude Code → Enable Remote Control for all sessions."
   fi
   rm -rf "$STATE_DIR"
-  echo "Lid Agents is uninstalled. Closing the lid sleeps the Mac as normal."
+  echo "Cold Brew is uninstalled. Closing the lid sleeps the Mac as normal."
   if command -v codex >/dev/null 2>&1; then
     local home header=0
     while IFS= read -r home; do
@@ -1499,7 +1499,7 @@ case "${1:-status}" in
   focus)      shift; cmd_focus "$@" ;;
   uninstall)  cmd_uninstall ;;
   update)     cmd_update ;;
-  version|--version|-v) echo "lid-agents $AGENTS_VERSION" ;;
+  version|--version|-v) echo "Cold Brew $AGENTS_VERSION" ;;
   *) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; [ "${1:-}" = "help" ] || [ "${1:-}" = "--help" ] || exit 1 ;;
 esac
 }
