@@ -154,6 +154,16 @@ sleep_display() {
   return 0
 }
 
+# When keep switches off with the lid already shut, the lid-close event has been and gone, so nothing
+# else would sleep the Mac now: sleep it. Unless a monitor is in use: a closed lid is then clamshell
+# mode, someone is working at the desk, and macOS keeps it awake on its own once the flag is off.
+sleep_closed_mac() {
+  lid_closed || return 0
+  if external_display; then log "lid closed with a monitor plugged in: left awake"; return 0; fi
+  log "lid closed: sleeping now"
+  pmset sleepnow >/dev/null
+}
+
 guard_running() { [ -f "$GUARD_PID" ] && kill -0 "$(cat "$GUARD_PID")" 2>/dev/null; }
 
 # The four things detection reads from the system. tests/run.sh points AGENTS_TEST_FIXTURE at a
@@ -566,8 +576,7 @@ start_guard() {
         apps_sync open
         if set_flag 0; then
           log "auto-pause: $reason"
-          # the lid-close event already happened, so nothing else would sleep the Mac now
-          if lid_closed; then log "lid closed: sleeping now"; pmset sleepnow >/dev/null; fi
+          sleep_closed_mac
         fi
         rm -f "$GUARD_PID"
         exit 0

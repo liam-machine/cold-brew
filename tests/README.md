@@ -18,6 +18,7 @@ request.
 - **Auto keep**: an agent working with keep off is due to switch it on, one that needs you isn't; a pause holds it until every agent has finished, then the hold clears; `keep --auto` does nothing while held or switched off.
 - **Other apps** (`apps/`): from one snapshot, the app an agent runs in, apps it started, the keep list and an app holding a power assertion are kept; another user's app, one already in the background, system apps and command-line tools are left alone; the rest are slowed.
 - **Lid closed**: the display is put to sleep unless `system_profiler` lists a monitor besides the built-in one.
+- **Keep switching off with the lid shut**: the Mac is put to sleep, unless a monitor is plugged in (clamshell mode) or the lid is open.
 - **`agents mark`**: a pid below an agent marks that agent and records its children at that
   moment; non-agents mark nothing; `working` clears and leaves a stamp; a clear that lands after
   a `mark waiting` started wins the race; it always exits 0.
