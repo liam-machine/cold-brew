@@ -313,6 +313,31 @@ check "display: a monitor as well (clamshell mode)" "external" "$(display_case '
 check "display: lid closed, only a monitor" "external" "$(display_case '        LG HDR 4K:
           Resolution: 3840 x 2160')"
 
+# --- Keep switching off with the lid shut: sleep the Mac, unless a monitor is in use ----------
+# sleep_case <open|closed> <system_profiler text>: what sleep_closed_mac did (pmset is a stand-in)
+sleep_case() {
+  local lid="$1" calls="$TMP/pmset-calls"
+  mkdir -p "$TMP/displays"; printf '%s\n' "$2" > "$TMP/displays/displays"
+  : > "$calls"
+  (
+    export HOME="$TMP/apps" AGENTS_SOURCED=1 AGENTS_TEST_FIXTURE="$TMP/displays"
+    # shellcheck source=../bin/agents
+    source "$AGENTS"
+    lid_closed() { [ "$lid" = closed ]; }
+    pmset() { echo "pmset $*" >> "$calls"; }   # the real call's output goes to /dev/null
+    sleep_closed_mac
+  )
+  cat "$calls"
+}
+BUILT_IN='        Color LCD:
+          Display Type: Built-in Liquid Retina XDR Display
+          Resolution: 3024 x 1964 Retina'
+CLAMSHELL='        DELL P2425HE:
+          Resolution: 1920 x 1080 (1080p FHD - Full High Definition)'
+check "auto-pause: lid shut, no monitor: the Mac sleeps" "pmset sleepnow" "$(sleep_case closed "$BUILT_IN")"
+check "auto-pause: lid shut with a monitor (clamshell): left awake" "" "$(sleep_case closed "$CLAMSHELL")"
+check "auto-pause: lid open: left awake" "" "$(sleep_case open "$BUILT_IN")"
+
 # --- agents focus: the steps for each kind of app (tests/focus/<case>/) ---------------------
 for dir in "$ROOT"/tests/focus/*/; do
   dir="${dir%/}"

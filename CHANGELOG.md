@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.2
+
+- **A closed MacBook on a monitor no longer sleeps (and locks) while you're using it.** When the agents finished, keep switched off and, seeing the lid shut, put the Mac to sleep, even in clamshell mode with a monitor and keyboard plugged in. Working at a desk with the lid closed, that meant logging back in every few minutes. Now it sleeps only with no monitor plugged in; with one, macOS keeps the Mac awake as it always does in clamshell mode.
+
 ## 1.5.1
 
 - **The GitHub repo is now [liam-machine/cold-brew](https://github.com/liam-machine/cold-brew)**, to match the app. Updates and downloads use the new address; the old one redirects, so earlier versions still find updates.
